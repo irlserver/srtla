@@ -44,6 +44,14 @@ struct srtla_conn {
     time_t last_rcvd = 0;
     int recv_idx = 0;
     std::array<uint32_t, RECV_ACK_INT> recv_log;
+    
+    uint64_t bytes_sent = 0;
+    int recovery_attempts = 0;
+    
+    // Capacity awareness without high/low categorization
+    uint64_t max_bytes_per_period = 0;    // Estimated maximum capacity
+    uint64_t bytes_this_period = 0;       // Bytes sent in current period
+    time_t last_capacity_update = 0;      // Time of last capacity estimation
 
     srtla_conn(struct sockaddr &_addr, time_t ts);
 };
@@ -69,3 +77,7 @@ struct srtla_ack_pkt {
     uint32_t type;
     uint32_t acks[RECV_ACK_INT];
 };
+
+// Connection management functions
+void cleanup_groups_connections(time_t ts);
+void ping_all_connections(time_t ts);
