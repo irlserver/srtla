@@ -48,6 +48,10 @@ struct srtla_conn {
     uint64_t bytes_sent = 0;
     int recovery_attempts = 0;
     
+    // Verbindungsgesundheitsüberwachung
+    time_t health_status = 0;     // Zeitpunkt des ersten Gesundheitsproblems
+    int successive_failures = 0;  // Anzahl aufeinanderfolgender Probleme
+    
     // Capacity awareness without high/low categorization
     uint64_t max_bytes_per_period = 0;    // Estimated maximum capacity
     uint64_t bytes_this_period = 0;       // Bytes sent in current period

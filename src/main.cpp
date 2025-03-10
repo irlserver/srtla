@@ -148,10 +148,36 @@ srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
         
         // Reset the counter for this period
         conn->bytes_this_period = 0;
+      } else if (conn->max_bytes_per_period > 0 && 
+                 (current_time - conn->last_capacity_update) > 60) {
+        // Progressively reduce capacity estimate for inactive connections
+        // This ensures problematic connections are gradually deprioritized
+        conn->max_bytes_per_period = conn->max_bytes_per_period * 0.8;
+        spdlog::debug("[{}:{}] Reducing capacity estimate due to inactivity: {:.2f} MB/period", 
+                     print_addr(&conn->addr), port_no(&conn->addr), 
+                     conn->max_bytes_per_period / 1048576.0);
       }
       
       // Apply exponential decay to accumulated byte counts for fair distribution
       conn->bytes_sent = conn->bytes_sent / 2;
+
+      // Track potentially problematic connections
+      if ((current_time - conn->last_rcvd) > (CONN_TIMEOUT / 2)) {
+        if (conn->health_status == 0) {
+          conn->health_status = current_time;
+          conn->successive_failures = 0;
+        } else if ((current_time - conn->health_status) > 5) {
+          conn->successive_failures++;
+          conn->health_status = current_time;
+          spdlog::debug("[{}:{}] Connection health deteriorating: {} failures", 
+                       print_addr(&conn->addr), port_no(&conn->addr), 
+                       conn->successive_failures);
+        }
+      } else {
+        // Connection is healthy, reset problem indicators
+        conn->health_status = 0;
+        conn->successive_failures = 0;
+      }
     }
     
     spdlog::info("[Group: {}] Applied bandwidth usage decay and updated capacity estimates", 
@@ -169,11 +195,17 @@ srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
   srtla_conn_ptr least_used = nullptr;
 
   // Identify active connections and calculate their utilization
+  int total_healthy_connections = 0;
   for (auto &conn : group->conns) {
-    bool is_active = (conn->last_rcvd + CONN_TIMEOUT) >= current_time;
+    // Consider connection active only if:
+    // 1. It's within the timeout period
+    // 2. It doesn't have too many successive failures
+    bool is_active = (conn->last_rcvd + CONN_TIMEOUT) >= current_time && 
+                     conn->successive_failures < 3;
     
     if (is_active) {
       active_conns.push_back(conn);
+      total_healthy_connections++;
       
       // Find connection with lowest usage
       if (conn->bytes_sent < lowest_bytes) {
@@ -193,6 +225,19 @@ srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
       }
       
       conn_utilization.push_back({conn, utilization});
+    } else if (conn->successive_failures >= 3) {
+      // Log problematic connections that are being excluded
+      spdlog::warn("[{}:{}] Connection excluded from load balancing due to {} successive failures", 
+                  print_addr(&conn->addr), port_no(&conn->addr), 
+                  conn->successive_failures);
+                  
+      // Even for excluded connections, occasionally try to recover them (every 30s)
+      if ((current_time % 30) == 0) {
+        // Reset to try again after some time
+        conn->successive_failures = 2;
+        spdlog::info("[{}:{}] Attempting to reintegrate problematic connection", 
+                    print_addr(&conn->addr), port_no(&conn->addr));
+      }
     }
   }
 
@@ -271,6 +316,8 @@ srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
     }
     
     if (total_bytes > 0) {
+      spdlog::debug("Active connections: {}/{}", total_healthy_connections, group->conns.size());
+      
       for (auto &conn : group->conns) {
         double percent = (double)conn->bytes_sent / total_bytes * 100.0;
         double kb_sent = conn->bytes_sent / 1024.0;
@@ -286,9 +333,12 @@ srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
         double capacity_mbps = conn->max_bytes_per_period > 0 ? 
                               (conn->max_bytes_per_period * 8.0 / 30000000.0) : 0.0;
         
-        spdlog::debug("[{}:{}] Bandwidth: {:.1f}% ({:.2f} KB) | Capacity: {:.2f} Mbps | Utilization: {:.1f}%", 
+        std::string health_status = conn->successive_failures > 0 ? 
+                                   fmt::format(" | Health issues: {}", conn->successive_failures) : "";
+        
+        spdlog::debug("[{}:{}] Bandwidth: {:.1f}% ({:.2f} KB) | Capacity: {:.2f} Mbps | Utilization: {:.1f}%{}",
                      print_addr(&conn->addr), port_no(&conn->addr), 
-                     percent, kb_sent, capacity_mbps, utilization * 100.0);
+                     percent, kb_sent, capacity_mbps, utilization * 100.0, health_status);
       }
     }
   }
