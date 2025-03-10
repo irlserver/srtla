@@ -48,9 +48,9 @@ struct srtla_conn {
     uint64_t bytes_sent = 0;
     int recovery_attempts = 0;
     
-    // Verbindungsgesundheitsüberwachung
-    time_t health_status = 0;     // Zeitpunkt des ersten Gesundheitsproblems
-    int successive_failures = 0;  // Anzahl aufeinanderfolgender Probleme
+    // Connection health monitoring
+    time_t health_status = 0;     // Time of first health issue
+    int successive_failures = 0;  // Number of consecutive issues
     
     // Capacity awareness without high/low categorization
     uint64_t max_bytes_per_period = 0;    // Estimated maximum capacity
@@ -82,6 +82,31 @@ struct srtla_ack_pkt {
     uint32_t acks[RECV_ACK_INT];
 };
 
-// Connection management functions
+// Connection selection and management functions
+srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group);
+void update_connection_capacity(srtla_conn_group_ptr group, time_t current_time);
+void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_time);
+void track_connection_health(srtla_conn_ptr conn, time_t current_time);
+std::vector<srtla_conn_ptr> get_active_connections(srtla_conn_group_ptr group, time_t current_time);
+std::vector<srtla_conn_ptr> get_recovery_connections(srtla_conn_group_ptr group);
+std::vector<std::pair<srtla_conn_ptr, double>> calculate_conn_utilization(
+    srtla_conn_group_ptr group, 
+    const std::vector<srtla_conn_ptr>& active_conns, 
+    time_t current_time);
+srtla_conn_ptr select_connection_based_on_load(
+    srtla_conn_group_ptr group, 
+    std::vector<srtla_conn_ptr>& active_conns,
+    time_t current_time);
+srtla_conn_ptr select_based_on_available_capacity(
+    std::vector<std::pair<srtla_conn_ptr, double>>& conn_utilization,
+    uint64_t round_robin_counter);
+srtla_conn_ptr select_fallback_connection(srtla_conn_group_ptr group, time_t current_time);
+void log_bandwidth_distribution(srtla_conn_group_ptr group, time_t current_time);
+
+// Time management functions
+time_t get_last_decay_time();
+void set_last_decay_time(time_t new_time);
+
+// Group management functions
 void cleanup_groups_connections(time_t ts);
 void ping_all_connections(time_t ts);
