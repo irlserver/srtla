@@ -850,7 +850,7 @@ int main(int argc, char **argv) {
 
   args.add_argument("--srtla_port").help("Port to bind the SRTLA socket to").default_value((uint16_t)5000).scan<'d', uint16_t>();
   args.add_argument("--srt_hostname").help("Hostname of the downstream SRT server").default_value(std::string{"127.0.0.1"});
-  args.add_argument("--srt_port").help("Port of the downstream SRT server").default_value((uint16_t)5001).scan<'d', uint16_t>();
+  args.add_argument("--srt_port").help("Port of the downstream SRT server").default_value((uint16_t)4001).scan<'d', uint16_t>();
   args.add_argument("--verbose").help("Enable verbose logging").default_value(false).implicit_value(true);
 
   try {
