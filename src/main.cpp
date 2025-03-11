@@ -121,29 +121,64 @@ srtla_conn_group_ptr group_find_by_id(char *id) {
 }
 
 /**
- * Selects the best connection for data transmission based on various metrics
+ * Identifies and handles slow connections that might degrade overall performance
+ *
+ * @param group The connection group
+ * @param current_time Current time
+ */
+void handle_slow_connections(srtla_conn_group_ptr group, time_t current_time) {
+  static time_t last_check = 0;
+  
+  // Only check every 10 seconds to avoid excessive computation
+  if (current_time - last_check <= 10 || !group || group->conns.size() <= 1) {
+    return;
+  }
+  
+  last_check = current_time;
+  
+  // Calculate total and average capacity
+  uint64_t total_capacity = 0;
+  int connections_with_capacity = 0;
+  
+  for (auto &conn : group->conns) {
+    if (conn->max_bytes_per_period > 0) {
+      total_capacity += conn->max_bytes_per_period;
+      connections_with_capacity++;
+    }
+  }
+  
+  if (connections_with_capacity <= 1) {
+    return; // Not enough data to make judgments
+  }
+  
+  double avg_capacity = (double)total_capacity / connections_with_capacity;
+  
+  // Identify significantly slow connections (below 25% of average capacity)
+  for (auto &conn : group->conns) {
+    if (conn->max_bytes_per_period > 0 && 
+        conn->max_bytes_per_period < (avg_capacity * 0.25)) {
+        
+      // Mark as problematic to reduce usage frequency
+      conn->successive_failures = std::max(1, conn->successive_failures);
+      
+      spdlog::info("[{}:{}] Connection identified as slow ({:.2f}% of average capacity), marking for reduced usage", 
+                  print_addr(&conn->addr), port_no(&conn->addr),
+                  (conn->max_bytes_per_period * 100.0) / avg_capacity);
+    }
+  }
+}
+
+/**
+ * Implements the connection selection strategy
  * 
- * The function performs the following steps:
- * 1. Update capacity estimates
- * 2. Identify active connections
- * 3. Fall back to recovery connections if needed
- * 4. Select the optimal connection based on load/capacity
+ * This function encapsulates the connection selection logic that was previously
+ * in select_best_conn, to improve code organization and readability.
  * 
  * @param group The connection group
+ * @param current_time Current time
  * @return The selected connection or nullptr if none available
  */
-srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
-  // Basic validation
-  if (!group || group->conns.empty())
-    return nullptr;
-
-  // Get current time
-  time_t current_time;
-  get_seconds(&current_time);
-
-  // Update capacity estimates (only performed every 30 seconds)
-  update_connection_capacity(group, current_time);
-  
+srtla_conn_ptr select_connection_strategy(srtla_conn_group_ptr group, time_t current_time) {
   // Connection selection - staged approach
   
   // 1. First look for active connections
@@ -168,9 +203,40 @@ srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
   }
   
   // 4. Select connection based on load and capacity
-  srtla_conn_ptr selected_conn = select_connection_based_on_load(group, active_conns, current_time);
+  return select_connection_based_on_load(group, active_conns, current_time);
+}
+
+/**
+ * Selects the best connection for data transmission based on various metrics
+ * 
+ * The function performs the following steps:
+ * 1. Update capacity estimates
+ * 2. Identify and handle slow connections
+ * 3. Apply connection selection strategy
+ * 4. Log bandwidth distribution periodically
+ * 
+ * @param group The connection group
+ * @return The selected connection or nullptr if none available
+ */
+srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
+  // Basic validation
+  if (!group || group->conns.empty())
+    return nullptr;
+
+  // Get current time
+  time_t current_time;
+  get_seconds(&current_time);
+
+  // Update capacity estimates (only performed every 30 seconds)
+  update_connection_capacity(group, current_time);
   
-  // 5. Periodically log bandwidth distribution
+  // Identify and handle slow connections that might degrade performance
+  handle_slow_connections(group, current_time);
+  
+  // Apply connection selection strategy
+  srtla_conn_ptr selected_conn = select_connection_strategy(group, current_time);
+  
+  // Periodically log bandwidth distribution
   log_bandwidth_distribution(group, current_time);
   
   return selected_conn;
@@ -239,6 +305,23 @@ void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_tim
       spdlog::debug("[{}:{}] Updated capacity estimate: {:.2f} MB/period", 
                    print_addr(&conn->addr), port_no(&conn->addr), 
                    conn->max_bytes_per_period / 1048576.0);
+    } 
+    // If this period's throughput is significantly lower than our estimate (below 40%), 
+    // gradually lower our estimate to be more responsive to changing network conditions
+    else if (conn->max_bytes_per_period > 0 && 
+             conn->bytes_this_period < (conn->max_bytes_per_period * 0.4)) {
+      // More aggressively adapt to reduced capacity
+      uint64_t new_estimate = (conn->max_bytes_per_period * 0.9) + (conn->bytes_this_period * 0.1);
+      
+      // Adjust only if the difference is significant
+      if (new_estimate < (conn->max_bytes_per_period * 0.95)) {
+        conn->max_bytes_per_period = new_estimate;
+        conn->last_capacity_update = current_time;
+        
+        spdlog::debug("[{}:{}] Reduced capacity estimate due to lower throughput: {:.2f} MB/period", 
+                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   conn->max_bytes_per_period / 1048576.0);
+      }
     }
     
     // Reset counter for this period
@@ -470,15 +553,55 @@ srtla_conn_ptr select_based_on_available_capacity(
   std::sort(conn_utilization.begin(), conn_utilization.end(), 
             [](const auto &a, const auto &b) { return a.second < b.second; });
   
-  // Select one of the least utilized connections to balance load
-  // Rotate through the bottom half of utilized connections
-  size_t available_conns = conn_utilization.size() / 2;
-  if (available_conns == 0) available_conns = 1;  // At least use the lowest
+  // Calculate total and average capacity to identify slow connections
+  uint64_t total_capacity = 0;
+  std::vector<srtla_conn_ptr> normal_capacity_conns;
   
+  // First pass: calculate total capacity and identify connections with significant capacity
+  for (const auto& pair : conn_utilization) {
+    if (pair.first->max_bytes_per_period > 0) {
+      total_capacity += pair.first->max_bytes_per_period;
+    }
+  }
+  
+  // Calculate average capacity if we have connections with capacity data
+  double avg_capacity = (conn_utilization.size() > 0 && total_capacity > 0) ? 
+                       (double)total_capacity / conn_utilization.size() : 0;
+  
+  // Second pass: separate normal connections from slow connections (below 30% of average)
+  if (avg_capacity > 0) {
+    for (const auto& pair : conn_utilization) {
+      // If connection has at least 30% of average capacity, consider it normal
+      if (pair.first->max_bytes_per_period >= (avg_capacity * 0.3)) {
+        normal_capacity_conns.push_back(pair.first);
+      } else if (pair.first->max_bytes_per_period > 0) {
+        // Log identified slow connection
+        spdlog::debug("[{}:{}] Connection has low capacity ({:.2f}% of average), reducing usage frequency", 
+                     print_addr(&pair.first->addr), port_no(&pair.first->addr),
+                     (pair.first->max_bytes_per_period * 100.0) / avg_capacity);
+      }
+    }
+  }
+  
+  // If we have normal capacity connections, prefer using those
+  if (!normal_capacity_conns.empty()) {
+    // Use weighted selection - even among normal connections, prefer faster ones
+    // Rotate through the fastest 75% of connections
+    size_t available_conns = std::max(size_t(1), normal_capacity_conns.size() * 3 / 4);
+    size_t index = round_robin_counter % available_conns;
+    
+    auto selected_conn = normal_capacity_conns[index];
+    spdlog::debug("Load balancing: Using normal capacity connection");
+    return selected_conn;
+  }
+  
+  // Fallback: Use original algorithm if we couldn't identify normal connections
+  // Select one of the least utilized connections
+  size_t available_conns = std::max(size_t(1), conn_utilization.size() / 2);
   size_t index = round_robin_counter % available_conns;
   auto selected_conn = conn_utilization[index].first;
   
-  spdlog::debug("Load balancing: Using connection with {:.1f}% utilization", 
+  spdlog::debug("Load balancing: Using connection with {:.1f}% utilization (fallback method)", 
                conn_utilization[index].second * 100.0);
                
   return selected_conn;

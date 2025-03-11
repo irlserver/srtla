@@ -84,9 +84,11 @@ struct srtla_ack_pkt {
 
 // Connection selection and management functions
 srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group);
+srtla_conn_ptr select_connection_strategy(srtla_conn_group_ptr group, time_t current_time);
 void update_connection_capacity(srtla_conn_group_ptr group, time_t current_time);
 void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_time);
 void track_connection_health(srtla_conn_ptr conn, time_t current_time);
+void handle_slow_connections(srtla_conn_group_ptr group, time_t current_time);
 std::vector<srtla_conn_ptr> get_active_connections(srtla_conn_group_ptr group, time_t current_time);
 std::vector<srtla_conn_ptr> get_recovery_connections(srtla_conn_group_ptr group);
 std::vector<std::pair<srtla_conn_ptr, double>> calculate_conn_utilization(
