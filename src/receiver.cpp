@@ -1,7 +1,9 @@
 /*
     srtla_rec - SRT transport proxy with link aggregation, forked by IRLToolkit
-   and IRLServer Copyright (C) 2020-2021 BELABOX project Copyright (C) 2024
-   IRLToolkit Inc. Copyright (C) 2025 IRLServer.com
+    Copyright (C) 2020-2021 BELABOX project
+    Copyright (C) 2024 IRLToolkit Inc.
+    Copyright (C) 2024 OpenIRL
+    Copyright (C) 2025 IRLServer.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -118,8 +120,560 @@ srtla_conn_group_ptr group_find_by_id(char *id) {
   return nullptr;
 }
 
-void group_find_by_addr(struct sockaddr_storage *addr, srtla_conn_group_ptr &rg,
-                        srtla_conn_ptr &rc) {
+/**
+ * Identifies and handles slow connections that might degrade overall performance
+ *
+ * @param group The connection group
+ * @param current_time Current time
+ */
+void handle_slow_connections(srtla_conn_group_ptr group, time_t current_time) {
+  static time_t last_check = 0;
+  
+  // Only check every 10 seconds to avoid excessive computation
+  if (current_time - last_check <= 10 || !group || group->conns.size() <= 1) {
+    return;
+  }
+  
+  last_check = current_time;
+  
+  // Calculate total and average capacity
+  uint64_t total_capacity = 0;
+  int connections_with_capacity = 0;
+  
+  for (auto &conn : group->conns) {
+    if (conn->max_bytes_per_period > 0) {
+      total_capacity += conn->max_bytes_per_period;
+      connections_with_capacity++;
+    }
+  }
+  
+  if (connections_with_capacity <= 1) {
+    return; // Not enough data to make judgments
+  }
+  
+  double avg_capacity = (double)total_capacity / connections_with_capacity;
+  
+  // Identify significantly slow connections (below 25% of average capacity)
+  for (auto &conn : group->conns) {
+    if (conn->max_bytes_per_period > 0 && 
+        conn->max_bytes_per_period < (avg_capacity * 0.25)) {
+        
+      // Mark as problematic to reduce usage frequency
+      conn->successive_failures = std::max(1, conn->successive_failures);
+      
+      spdlog::info("[{}:{}] Connection identified as slow ({:.2f}% of average capacity), marking for reduced usage", 
+                  print_addr(&conn->addr), port_no(&conn->addr),
+                  (conn->max_bytes_per_period * 100.0) / avg_capacity);
+    }
+  }
+}
+
+/**
+ * Implements the connection selection strategy
+ * 
+ * This function encapsulates the connection selection logic that was previously
+ * in select_best_conn, to improve code organization and readability.
+ * 
+ * @param group The connection group
+ * @param current_time Current time
+ * @return The selected connection or nullptr if none available
+ */
+srtla_conn_ptr select_connection_strategy(srtla_conn_group_ptr group, time_t current_time) {
+  // Connection selection - staged approach
+  
+  // 1. First look for active connections
+  auto active_conns = get_active_connections(group, current_time);
+  
+  // 2. If no active connections, try connections in recovery mode
+  if (active_conns.empty()) {
+    active_conns = get_recovery_connections(group);
+    
+    // Try to find connections anyway
+    if (!active_conns.empty()) {
+      spdlog::debug("[Group: {}] No active connections, using {} recovery connections", 
+                   static_cast<void *>(group.get()), active_conns.size());
+    }
+  }
+
+  // 3. If still no connections, use fallback strategy
+  if (active_conns.empty()) {
+    spdlog::warn("[Group: {}] No active or recovery connections, using fallback strategy", 
+                static_cast<void *>(group.get()));
+    return select_fallback_connection(group, current_time);
+  }
+  
+  // 4. Select connection based on load and capacity
+  return select_connection_based_on_load(group, active_conns, current_time);
+}
+
+/**
+ * Selects the best connection for data transmission based on various metrics
+ * 
+ * The function performs the following steps:
+ * 1. Update capacity estimates
+ * 2. Identify and handle slow connections
+ * 3. Apply connection selection strategy
+ * 4. Log bandwidth distribution periodically
+ * 
+ * @param group The connection group
+ * @return The selected connection or nullptr if none available
+ */
+srtla_conn_ptr select_best_conn(srtla_conn_group_ptr group) {
+  // Basic validation
+  if (!group || group->conns.empty())
+    return nullptr;
+
+  // Get current time
+  time_t current_time;
+  get_seconds(&current_time);
+
+  // Update capacity estimates (only performed every 30 seconds)
+  update_connection_capacity(group, current_time);
+  
+  // Identify and handle slow connections that might degrade performance
+  handle_slow_connections(group, current_time);
+  
+  // Apply connection selection strategy
+  srtla_conn_ptr selected_conn = select_connection_strategy(group, current_time);
+  
+  // Periodically log bandwidth distribution
+  log_bandwidth_distribution(group, current_time);
+  
+  return selected_conn;
+}
+
+// Global decay time variable
+static time_t g_last_decay_time = 0;
+
+/**
+ * Returns the last decay time for consistent calculations
+ */
+time_t get_last_decay_time() {
+  return g_last_decay_time;
+}
+
+/**
+ * Sets the last decay time as part of capacity update
+ */
+void set_last_decay_time(time_t new_time) {
+  g_last_decay_time = new_time;
+}
+
+/**
+ * Updates capacity estimates for all connections in a group
+ */
+void update_connection_capacity(srtla_conn_group_ptr group, time_t current_time) {
+  // Access global time variable for consistency
+  time_t last_decay = get_last_decay_time();
+  
+  // Only update every 30 seconds
+  if (current_time - last_decay <= 30) {
+    return;
+  }
+  
+  // Store time of update
+  set_last_decay_time(current_time);
+  
+  // Update capacity estimates for each connection in parallel
+  for (auto &conn : group->conns) {
+    // Update capacity
+    update_connection_capacity_estimate(conn, current_time);
+    
+    // Apply exponential decay to accumulated byte counts for fair distribution
+    // Halve the sent bytes to gradually discard historical data
+    conn->bytes_sent = conn->bytes_sent / 2;
+
+    // Track potentially problematic connections
+    track_connection_health(conn, current_time);
+  }
+  
+  spdlog::info("[Group: {}] Applied bandwidth usage decay and updated capacity estimates", 
+              static_cast<void *>(group.get()));
+}
+
+/**
+ * Updates the capacity estimate for a single connection
+ */
+void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_time) {
+  // Only update capacity if the connection was active in this period
+  if (conn->bytes_this_period > 0) {
+    // If this period exceeded the previous maximum, update the capacity estimate
+    if (conn->bytes_this_period > conn->max_bytes_per_period) {
+      conn->max_bytes_per_period = conn->bytes_this_period;
+      conn->last_capacity_update = current_time;
+      
+      spdlog::debug("[{}:{}] Updated capacity estimate: {:.2f} MB/period", 
+                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   conn->max_bytes_per_period / 1048576.0);
+    } 
+    // If this period's throughput is significantly lower than our estimate (below 40%), 
+    // gradually lower our estimate to be more responsive to changing network conditions
+    else if (conn->max_bytes_per_period > 0 && 
+             conn->bytes_this_period < (conn->max_bytes_per_period * 0.4)) {
+      // More aggressively adapt to reduced capacity
+      uint64_t new_estimate = (conn->max_bytes_per_period * 0.9) + (conn->bytes_this_period * 0.1);
+      
+      // Adjust only if the difference is significant
+      if (new_estimate < (conn->max_bytes_per_period * 0.95)) {
+        conn->max_bytes_per_period = new_estimate;
+        conn->last_capacity_update = current_time;
+        
+        spdlog::debug("[{}:{}] Reduced capacity estimate due to lower throughput: {:.2f} MB/period", 
+                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   conn->max_bytes_per_period / 1048576.0);
+      }
+    }
+    
+    // Reset counter for this period
+    conn->bytes_this_period = 0;
+  } else if (conn->max_bytes_per_period > 0 && 
+             (current_time - conn->last_capacity_update) > 60) {
+    // Progressively reduce capacity estimate for inactive connections
+    // This ensures problematic connections are gradually deprioritized
+    conn->max_bytes_per_period = conn->max_bytes_per_period * 0.8;
+    spdlog::debug("[{}:{}] Reducing capacity estimate due to inactivity: {:.2f} MB/period", 
+                 print_addr(&conn->addr), port_no(&conn->addr), 
+                 conn->max_bytes_per_period / 1048576.0);
+  }
+}
+
+/**
+ * Tracks the health status of a connection
+ */
+void track_connection_health(srtla_conn_ptr conn, time_t current_time) {
+  if ((current_time - conn->last_rcvd) > (CONN_TIMEOUT / 2)) {
+    if (conn->health_status == 0) {
+      conn->health_status = current_time;
+      conn->successive_failures = 0;
+    } else if ((current_time - conn->health_status) > 5) {
+      conn->successive_failures++;
+      conn->health_status = current_time;
+      spdlog::debug("[{}:{}] Connection health deteriorating: {} failures", 
+                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   conn->successive_failures);
+    }
+  } else {
+    // Connection is healthy, reset problem indicators
+    conn->health_status = 0;
+    conn->successive_failures = 0;
+  }
+}
+
+/**
+ * Identifies active connections in a group
+ */
+std::vector<srtla_conn_ptr> get_active_connections(srtla_conn_group_ptr group, time_t current_time) {
+  std::vector<srtla_conn_ptr> active_conns;
+  
+  for (auto &conn : group->conns) {
+    // Consider connection active only if:
+    // 1. It's within the timeout period
+    // 2. It doesn't have too many successive failures
+    bool is_active = (conn->last_rcvd + CONN_TIMEOUT) >= current_time && 
+                     conn->successive_failures < 3;
+    
+    if (is_active) {
+      active_conns.push_back(conn);
+    } else if (conn->successive_failures >= 3) {
+      // Log problematic connections that are excluded
+      spdlog::warn("[{}:{}] Connection excluded from load balancing due to {} successive failures", 
+                  print_addr(&conn->addr), port_no(&conn->addr), 
+                  conn->successive_failures);
+                  
+      // Occasionally try to recover even excluded connections (every 30s)
+      if ((current_time % 30) == 0) {
+        // Reset to try again after some time
+        conn->successive_failures = 2;
+        spdlog::info("[{}:{}] Attempting to reintegrate problematic connection", 
+                    print_addr(&conn->addr), port_no(&conn->addr));
+      }
+    }
+  }
+  
+  return active_conns;
+}
+
+/**
+ * Retrieves connections in recovery mode
+ */
+std::vector<srtla_conn_ptr> get_recovery_connections(srtla_conn_group_ptr group) {
+  std::vector<srtla_conn_ptr> recovery_conns;
+  
+  for (auto &conn : group->conns) {
+    if (conn->recovery_attempts > 0 && conn->recovery_attempts < 5) {
+      recovery_conns.push_back(conn);
+    }
+  }
+  
+  return recovery_conns;
+}
+
+/**
+ * Calculates utilization for all active connections
+ * 
+ * @param group The connection group
+ * @param active_conns List of active connections
+ * @param current_time Current time
+ * @param last_decay Time of last bandwidth measurement (from update_connection_capacity)
+ * @return Vector of connection-utilization pairs
+ */
+std::vector<std::pair<srtla_conn_ptr, double>> calculate_conn_utilization(
+    srtla_conn_group_ptr group, 
+    const std::vector<srtla_conn_ptr>& active_conns, 
+    time_t current_time) {
+    
+  if (active_conns.empty()) {
+    return {};  // Return empty result if no active connections
+  }
+  
+  // Access shared last_decay variable
+  time_t last_decay = get_last_decay_time();
+  
+  // Pre-allocate result vector for efficiency
+  std::vector<std::pair<srtla_conn_ptr, double>> conn_utilization;
+  conn_utilization.reserve(active_conns.size());
+  
+  // Calculate time factor for current period estimation (only once)
+  double time_factor = std::min(30.0, static_cast<double>(current_time - last_decay)) / 30.0;
+  // Avoid division by zero
+  if (time_factor < 0.01) time_factor = 0.01;
+  
+  for (auto &conn : active_conns) {
+    // Calculate relative utilization against capacity
+    double utilization = 0.0;
+    
+    if (conn->max_bytes_per_period > 0) {
+      // Estimate current period usage
+      double estimated_period_usage = conn->bytes_this_period / time_factor;
+      
+      // Utilization as ratio of current usage to maximum capacity
+      utilization = estimated_period_usage / conn->max_bytes_per_period;
+      
+      // Limit utilization to a reasonable maximum value (200%)
+      if (utilization > 2.0) {
+        utilization = 2.0;
+      }
+    }
+    
+    conn_utilization.emplace_back(conn, utilization);
+  }
+  
+  return conn_utilization;
+}
+
+/**
+ * Selects the most recently active connection as fallback mechanism
+ */
+srtla_conn_ptr select_fallback_connection(srtla_conn_group_ptr group, time_t current_time) {
+  if (!group || group->conns.empty()) {
+    return nullptr;
+  }
+  
+  // Use std::max_element to determine the most recently active connection
+  auto newest_conn = std::max_element(group->conns.begin(), group->conns.end(),
+      [](const auto& a, const auto& b) {
+          return a->last_rcvd < b->last_rcvd;
+      });
+  
+  spdlog::debug("[Group: {}] Fallback: Using most recently active connection [{}:{}] (last active {} seconds ago)",
+               static_cast<void *>(group.get()),
+               print_addr(&(*newest_conn)->addr), port_no(&(*newest_conn)->addr),
+               current_time - (*newest_conn)->last_rcvd);
+               
+  return *newest_conn;
+}
+
+/**
+ * Selects a connection based on load
+ */
+srtla_conn_ptr select_connection_based_on_load(
+    srtla_conn_group_ptr group, 
+    std::vector<srtla_conn_ptr>& active_conns,
+    time_t current_time) {
+    
+  if (active_conns.empty()) {
+    return nullptr;
+  }
+  
+  static uint64_t round_robin_counter = 0;
+  round_robin_counter++;
+  
+  // Use std::min_element to find the least used connection
+  auto least_used = std::min_element(active_conns.begin(), active_conns.end(),
+      [](const auto& a, const auto& b) {
+          return a->bytes_sent < b->bytes_sent;
+      });
+  
+  // Check if connections are approaching their capacity limit (>70% utilized)
+  auto conn_utilization = calculate_conn_utilization(group, active_conns, current_time);
+  
+  // any_of for checking connections at capacity
+  bool any_at_capacity = std::any_of(conn_utilization.begin(), conn_utilization.end(),
+      [](const auto& pair) {
+          if (pair.second > 0.7) {
+              spdlog::debug("[{}:{}] Connection at {:.1f}% capacity, adjusting distribution", 
+                           print_addr(&pair.first->addr), port_no(&pair.first->addr), 
+                           pair.second * 100.0);
+              return true;
+          }
+          return false;
+      });
+  
+  srtla_conn_ptr selected_conn = nullptr;
+  
+  // Connection selection strategy based on utilization
+  if (any_at_capacity && !conn_utilization.empty()) {
+    selected_conn = select_based_on_available_capacity(conn_utilization, round_robin_counter);
+  } else {
+    // Alternate between load balancing (least used) and round-robin
+    if (round_robin_counter % 3 == 0 && least_used != active_conns.end()) {
+      selected_conn = *least_used;
+    } else {
+      size_t index = round_robin_counter % active_conns.size();
+      selected_conn = active_conns[index];
+    }
+  }
+
+  // Reset recovery attempts if connection is restored
+  if (selected_conn && selected_conn->recovery_attempts > 0) {
+    selected_conn->recovery_attempts = 0;
+  }
+  
+  return selected_conn;
+}
+
+/**
+ * Selects a connection based on available capacity
+ */
+srtla_conn_ptr select_based_on_available_capacity(
+    std::vector<std::pair<srtla_conn_ptr, double>>& conn_utilization,
+    uint64_t round_robin_counter) {
+    
+  // Sort connections by utilization (ascending)
+  std::sort(conn_utilization.begin(), conn_utilization.end(), 
+            [](const auto &a, const auto &b) { return a.second < b.second; });
+  
+  // Calculate total and average capacity to identify slow connections
+  uint64_t total_capacity = 0;
+  std::vector<srtla_conn_ptr> normal_capacity_conns;
+  
+  // First pass: calculate total capacity and identify connections with significant capacity
+  for (const auto& pair : conn_utilization) {
+    if (pair.first->max_bytes_per_period > 0) {
+      total_capacity += pair.first->max_bytes_per_period;
+    }
+  }
+  
+  // Calculate average capacity if we have connections with capacity data
+  double avg_capacity = (conn_utilization.size() > 0 && total_capacity > 0) ? 
+                       (double)total_capacity / conn_utilization.size() : 0;
+  
+  // Second pass: separate normal connections from slow connections (below 30% of average)
+  if (avg_capacity > 0) {
+    for (const auto& pair : conn_utilization) {
+      // If connection has at least 30% of average capacity, consider it normal
+      if (pair.first->max_bytes_per_period >= (avg_capacity * 0.3)) {
+        normal_capacity_conns.push_back(pair.first);
+      } else if (pair.first->max_bytes_per_period > 0) {
+        // Log identified slow connection
+        spdlog::debug("[{}:{}] Connection has low capacity ({:.2f}% of average), reducing usage frequency", 
+                     print_addr(&pair.first->addr), port_no(&pair.first->addr),
+                     (pair.first->max_bytes_per_period * 100.0) / avg_capacity);
+      }
+    }
+  }
+  
+  // If we have normal capacity connections, prefer using those
+  if (!normal_capacity_conns.empty()) {
+    // Use weighted selection - even among normal connections, prefer faster ones
+    // Rotate through the fastest 75% of connections
+    size_t available_conns = std::max(size_t(1), normal_capacity_conns.size() * 3 / 4);
+    size_t index = round_robin_counter % available_conns;
+    
+    auto selected_conn = normal_capacity_conns[index];
+    spdlog::debug("Load balancing: Using normal capacity connection");
+    return selected_conn;
+  }
+  
+  // Fallback: Use original algorithm if we couldn't identify normal connections
+  // Select one of the least utilized connections
+  size_t available_conns = std::max(size_t(1), conn_utilization.size() / 2);
+  size_t index = round_robin_counter % available_conns;
+  auto selected_conn = conn_utilization[index].first;
+  
+  spdlog::debug("Load balancing: Using connection with {:.1f}% utilization (fallback method)", 
+               conn_utilization[index].second * 100.0);
+               
+  return selected_conn;
+}
+
+/**
+ * Logs bandwidth distribution periodically
+ */
+void log_bandwidth_distribution(srtla_conn_group_ptr group, time_t current_time) {
+  static time_t last_log = 0;
+  
+  // Check logging interval and preconditions
+  if (current_time - last_log <= 10 || !group || group->conns.empty()) {
+    return;
+  }
+  
+  last_log = current_time;
+  
+  // Sum bytes and count healthy connections
+  uint64_t total_bytes = 0;
+  int total_healthy_connections = 0;
+  
+  for (auto &conn : group->conns) {
+    total_bytes += conn->bytes_sent;
+    if ((conn->last_rcvd + CONN_TIMEOUT) >= current_time && conn->successive_failures < 3) {
+      total_healthy_connections++;
+    }
+  }
+  
+  if (total_bytes <= 0) {
+    spdlog::debug("[Group: {}] No bandwidth data available for logging", static_cast<void *>(group.get()));
+    return;
+  }
+  
+  spdlog::debug("Active connections: {}/{}", total_healthy_connections, group->conns.size());
+  
+  // Get last decay time for utilization calculations (for consistency)
+  time_t last_decay = get_last_decay_time();
+  
+  // Calculate time factor for all connections (only once)
+  double time_factor = std::min(30.0, static_cast<double>(current_time - last_decay)) / 30.0;
+  if (time_factor < 0.01) time_factor = 0.01;
+  
+  // Log connection information
+  for (auto &conn : group->conns) {
+    double percent = (double)conn->bytes_sent / total_bytes * 100.0;
+    double kb_sent = conn->bytes_sent / 1024.0;
+    
+    // Calculate current utilization
+    double utilization = 0.0;
+    double capacity_mbps = 0.0;
+    
+    if (conn->max_bytes_per_period > 0) {
+      double estimated_period_usage = conn->bytes_this_period / time_factor;
+      utilization = estimated_period_usage / conn->max_bytes_per_period;
+      
+      // Convert capacity to Mbps
+      capacity_mbps = conn->max_bytes_per_period * 8.0 / 30000000.0;
+    }
+    
+    // Format health status
+    std::string health_status = conn->successive_failures > 0 ? 
+                               fmt::format(" | Health issues: {}", conn->successive_failures) : "";
+    
+    // Log detailed information
+    spdlog::debug("[{}:{}] Bandwidth: {:.1f}% ({:.2f} KB) | Capacity: {:.2f} Mbps | Utilization: {:.1f}%{}",
+                 print_addr(&conn->addr), port_no(&conn->addr), 
+                 percent, kb_sent, capacity_mbps, utilization * 100.0, health_status);
+  }
+}
+
+void group_find_by_addr(struct sockaddr *addr, srtla_conn_group_ptr &rg, srtla_conn_ptr &rc) {
   for (auto &group : conn_groups) {
     for (auto &conn : group->conns) {
       if (conn->addr.ss_family == addr->ss_family &&
@@ -163,8 +717,13 @@ void group_find_by_addr(struct sockaddr_storage *addr, srtla_conn_group_ptr &rg,
   rc = nullptr;
 }
 
-srtla_conn::srtla_conn(struct sockaddr_storage &_addr, time_t ts)
-    : addr(_addr), last_rcvd(ts) {
+srtla_conn::srtla_conn(struct sockaddr &_addr, time_t ts) :
+  addr(_addr),
+  last_rcvd(ts),
+  max_bytes_per_period(0),
+  bytes_this_period(0),
+  last_capacity_update(ts)
+{
   recv_log.fill(0);
 }
 
@@ -397,14 +956,26 @@ void handle_srt_data(srtla_conn_group_ptr g) {
                       static_cast<void *>(g.get()));
     }
   } else {
-    // send other packets over the most recently used SRTLA connection
-    int ret = sendto(srtla_sock, &buf, n, 0, (struct sockaddr *)&g->last_addr,
-                     addr_len);
-    if (ret != n) {
-      spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT packet",
-                    print_addr((struct sockaddr *)&g->last_addr),
-                    port_no((struct sockaddr *)&g->last_addr),
-                    static_cast<void *>(g.get()));
+    srtla_conn_ptr best_conn = select_best_conn(g);
+    if (best_conn) {
+      int ret = sendto(srtla_sock, &buf, n, 0, &best_conn->addr, addr_len);
+      if (ret != n) {
+        spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT packet", 
+                      print_addr(&best_conn->addr), port_no(&best_conn->addr), 
+                      static_cast<void *>(g.get()));
+      } else {
+        // Update bandwidth statistics based on actual packet size
+        best_conn->bytes_sent += n;
+        // Also track bytes in current measurement period for capacity estimation
+        best_conn->bytes_this_period += n;
+      }
+    } else {
+      int ret = sendto(srtla_sock, &buf, n, 0, &g->last_addr, addr_len);
+      if (ret != n) {
+        spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT packet", 
+                     print_addr(&g->last_addr), port_no(&g->last_addr), 
+                     static_cast<void *>(g.get()));
+      }
     }
   }
 }
@@ -569,6 +1140,7 @@ void cleanup_groups_connections(time_t ts) {
   int total_conns = 0;
   int removed_groups = 0;
   int removed_conns = 0;
+  int recovered_conns = 0;
 
   for (std::vector<srtla_conn_group_ptr>::iterator git = conn_groups.begin();
        git != conn_groups.end();) {
@@ -580,7 +1152,7 @@ void cleanup_groups_connections(time_t ts) {
          cit != group->conns.end();) {
       auto conn = *cit;
 
-      if ((conn->last_rcvd + CONN_TIMEOUT) < ts) {
+      if ((conn->last_rcvd + (CONN_TIMEOUT * 1.5)) < ts) {
         cit = group->conns.erase(cit);
         removed_conns++;
         spdlog::info("[{}:{}] [Group: {}] Connection removed (timed out)",
@@ -588,6 +1160,27 @@ void cleanup_groups_connections(time_t ts) {
                      port_no((struct sockaddr *)&conn->addr),
                      static_cast<void *>(group.get()));
       } else {
+        // More aggressive recovery logic:
+        // 1. Starts earlier with recovery attempts (1/4 of CONN_TIMEOUT)
+        // 2. Allows more recovery attempts (5 instead of 3)
+        // 3. Sends multiple keepalive packets with each attempt
+        bool should_attempt_recovery = 
+            (conn->last_rcvd + (CONN_TIMEOUT / 4)) < ts && (conn->recovery_attempts < 5);
+        
+        if (should_attempt_recovery) {
+          uint16_t header = htobe16(SRTLA_TYPE_KEEPALIVE);
+          // Send multiple keepalives to increase success probability
+          for (int i = 0; i < 3; i++) {
+            int ret = sendto(srtla_sock, &header, sizeof(header), 0, &conn->addr, addr_len);
+            if (ret == sizeof(header)) {
+              recovered_conns++;
+            }
+          }
+          conn->recovery_attempts++;
+          spdlog::debug("[{}:{}] [Group: {}] Attempting to recover connection (attempt {}/5)", 
+                       print_addr(&conn->addr), port_no(&conn->addr), 
+                       static_cast<void *>(group.get()), conn->recovery_attempts);
+        }
         cit++;
       }
     }
@@ -604,9 +1197,46 @@ void cleanup_groups_connections(time_t ts) {
     }
   }
 
-  spdlog::debug("Clean up run ended. Counted {} groups and {} connections. "
-                "Removed {} groups and {} connections",
-                total_groups, total_conns, removed_groups, removed_conns);
+  spdlog::debug("Clean up run ended. Counted {} groups and {} connections. Removed {} groups, {} connections, and attempted to recover {} connections", 
+               total_groups, total_conns, removed_groups, removed_conns, recovered_conns);
+}
+
+// New function: Proactive ping for connection monitoring
+void ping_all_connections(time_t ts) {
+  static time_t last_ping = 0;
+  // Execute ping every 2 seconds
+  if ((last_ping + 2) > ts)
+    return;
+  last_ping = ts;
+
+  if (conn_groups.empty())
+    return;
+
+  // Ping all connections to keep them active
+  for (auto &group : conn_groups) {
+    for (auto &conn : group->conns) {
+      // Send keepalive to all connections that were recently active or
+      // are inactive for more than 1/3 of the timeout
+      if ((ts - conn->last_rcvd) > (CONN_TIMEOUT / 5)) {
+        uint16_t header = htobe16(SRTLA_TYPE_KEEPALIVE);
+        sendto(srtla_sock, &header, sizeof(header), 0, &conn->addr, addr_len);
+        
+        if (conn->recovery_attempts > 0) {
+          spdlog::debug("[{}:{}] [Group: {}] Probing inactive connection", 
+                      print_addr(&conn->addr), port_no(&conn->addr), static_cast<void *>(group.get()));
+        }
+      }
+      
+      // For connections with "recovery_attempts > 0", try even harder to restore them
+      if (conn->recovery_attempts > 0) {
+        // Send multiple keepalives for recovering connections
+        for (int i = 0; i < 2; i++) {
+          uint16_t header = htobe16(SRTLA_TYPE_KEEPALIVE);
+          sendto(srtla_sock, &header, sizeof(header), 0, &conn->addr, addr_len);
+        }
+      }
+    }
+  }
 }
 
 /*
@@ -708,21 +1338,10 @@ int resolve_srt_addr(const char *host, const char *port) {
 int main(int argc, char **argv) {
   argparse::ArgumentParser args("srtla_rec", VERSION);
 
-  args.add_argument("--srtla_port")
-      .help("Port to bind the SRTLA socket to")
-      .default_value((uint16_t)5000)
-      .scan<'d', uint16_t>();
-  args.add_argument("--srt_hostname")
-      .help("Hostname of the downstream SRT server")
-      .default_value(std::string{"127.0.0.1"});
-  args.add_argument("--srt_port")
-      .help("Port of the downstream SRT server")
-      .default_value((uint16_t)5001)
-      .scan<'d', uint16_t>();
-  args.add_argument("--verbose")
-      .help("Enable verbose logging")
-      .default_value(false)
-      .implicit_value(true);
+  args.add_argument("--srtla_port").help("Port to bind the SRTLA socket to").default_value((uint16_t)5000).scan<'d', uint16_t>();
+  args.add_argument("--srt_hostname").help("Hostname of the downstream SRT server").default_value(std::string{"127.0.0.1"});
+  args.add_argument("--srt_port").help("Port of the downstream SRT server").default_value((uint16_t)4001).scan<'d', uint16_t>();
+  args.add_argument("--verbose").help("Enable verbose logging").default_value(false).implicit_value(true);
 
   try {
     args.parse_args(argc, argv);
@@ -823,5 +1442,6 @@ int main(int argc, char **argv) {
     } // for
 
     cleanup_groups_connections(ts);
+    ping_all_connections(ts);
   }
 }
