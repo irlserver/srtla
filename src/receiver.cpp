@@ -162,7 +162,7 @@ void handle_slow_connections(srtla_conn_group_ptr group, time_t current_time) {
       conn->successive_failures = std::max(1, conn->successive_failures);
       
       spdlog::info("[{}:{}] Connection identified as slow ({:.2f}% of average capacity), marking for reduced usage", 
-                  print_addr(&conn->addr), port_no(&conn->addr),
+                  print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
                   (conn->max_bytes_per_period * 100.0) / avg_capacity);
     }
   }
@@ -303,7 +303,7 @@ void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_tim
       conn->last_capacity_update = current_time;
       
       spdlog::debug("[{}:{}] Updated capacity estimate: {:.2f} MB/period", 
-                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                    conn->max_bytes_per_period / 1048576.0);
     } 
     // If this period's throughput is significantly lower than our estimate (below 40%), 
@@ -319,7 +319,7 @@ void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_tim
         conn->last_capacity_update = current_time;
         
         spdlog::debug("[{}:{}] Reduced capacity estimate due to lower throughput: {:.2f} MB/period", 
-                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                    conn->max_bytes_per_period / 1048576.0);
       }
     }
@@ -332,7 +332,7 @@ void update_connection_capacity_estimate(srtla_conn_ptr conn, time_t current_tim
     // This ensures problematic connections are gradually deprioritized
     conn->max_bytes_per_period = conn->max_bytes_per_period * 0.8;
     spdlog::debug("[{}:{}] Reducing capacity estimate due to inactivity: {:.2f} MB/period", 
-                 print_addr(&conn->addr), port_no(&conn->addr), 
+                 print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                  conn->max_bytes_per_period / 1048576.0);
   }
 }
@@ -349,7 +349,7 @@ void track_connection_health(srtla_conn_ptr conn, time_t current_time) {
       conn->successive_failures++;
       conn->health_status = current_time;
       spdlog::debug("[{}:{}] Connection health deteriorating: {} failures", 
-                   print_addr(&conn->addr), port_no(&conn->addr), 
+                   print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                    conn->successive_failures);
     }
   } else {
@@ -377,7 +377,7 @@ std::vector<srtla_conn_ptr> get_active_connections(srtla_conn_group_ptr group, t
     } else if (conn->successive_failures >= 3) {
       // Log problematic connections that are excluded
       spdlog::warn("[{}:{}] Connection excluded from load balancing due to {} successive failures", 
-                  print_addr(&conn->addr), port_no(&conn->addr), 
+                  print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                   conn->successive_failures);
                   
       // Occasionally try to recover even excluded connections (every 30s)
@@ -385,7 +385,7 @@ std::vector<srtla_conn_ptr> get_active_connections(srtla_conn_group_ptr group, t
         // Reset to try again after some time
         conn->successive_failures = 2;
         spdlog::info("[{}:{}] Attempting to reintegrate problematic connection", 
-                    print_addr(&conn->addr), port_no(&conn->addr));
+                    print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr));
       }
     }
   }
@@ -477,7 +477,7 @@ srtla_conn_ptr select_fallback_connection(srtla_conn_group_ptr group, time_t cur
   
   spdlog::debug("[Group: {}] Fallback: Using most recently active connection [{}:{}] (last active {} seconds ago)",
                static_cast<void *>(group.get()),
-               print_addr(&(*newest_conn)->addr), port_no(&(*newest_conn)->addr),
+               print_addr((struct sockaddr *)&(*newest_conn)->addr), port_no((struct sockaddr *)&(*newest_conn)->addr),
                current_time - (*newest_conn)->last_rcvd);
                
   return *newest_conn;
@@ -512,7 +512,7 @@ srtla_conn_ptr select_connection_based_on_load(
       [](const auto& pair) {
           if (pair.second > 0.7) {
               spdlog::debug("[{}:{}] Connection at {:.1f}% capacity, adjusting distribution", 
-                           print_addr(&pair.first->addr), port_no(&pair.first->addr), 
+                           print_addr((struct sockaddr *)&pair.first->addr), port_no((struct sockaddr *)&pair.first->addr), 
                            pair.second * 100.0);
               return true;
           }
@@ -577,7 +577,7 @@ srtla_conn_ptr select_based_on_available_capacity(
       } else if (pair.first->max_bytes_per_period > 0) {
         // Log identified slow connection
         spdlog::debug("[{}:{}] Connection has low capacity ({:.2f}% of average), reducing usage frequency", 
-                     print_addr(&pair.first->addr), port_no(&pair.first->addr),
+                     print_addr((struct sockaddr *)&pair.first->addr), port_no((struct sockaddr *)&pair.first->addr),
                      (pair.first->max_bytes_per_period * 100.0) / avg_capacity);
       }
     }
@@ -668,12 +668,13 @@ void log_bandwidth_distribution(srtla_conn_group_ptr group, time_t current_time)
     
     // Log detailed information
     spdlog::debug("[{}:{}] Bandwidth: {:.1f}% ({:.2f} KB) | Capacity: {:.2f} Mbps | Utilization: {:.1f}%{}",
-                 print_addr(&conn->addr), port_no(&conn->addr), 
+                 print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                  percent, kb_sent, capacity_mbps, utilization * 100.0, health_status);
   }
 }
 
-void group_find_by_addr(struct sockaddr *addr, srtla_conn_group_ptr &rg, srtla_conn_ptr &rc) {
+void group_find_by_addr(struct sockaddr_storage *addr, srtla_conn_group_ptr &rg,
+  srtla_conn_ptr &rc) {
   for (auto &group : conn_groups) {
     for (auto &conn : group->conns) {
       if (conn->addr.ss_family == addr->ss_family &&
@@ -717,7 +718,7 @@ void group_find_by_addr(struct sockaddr *addr, srtla_conn_group_ptr &rg, srtla_c
   rc = nullptr;
 }
 
-srtla_conn::srtla_conn(struct sockaddr &_addr, time_t ts) :
+srtla_conn::srtla_conn(struct sockaddr_storage &_addr, time_t ts) :
   addr(_addr),
   last_rcvd(ts),
   max_bytes_per_period(0),
@@ -958,10 +959,10 @@ void handle_srt_data(srtla_conn_group_ptr g) {
   } else {
     srtla_conn_ptr best_conn = select_best_conn(g);
     if (best_conn) {
-      int ret = sendto(srtla_sock, &buf, n, 0, &best_conn->addr, addr_len);
+      int ret = sendto(srtla_sock, &buf, n, 0, (struct sockaddr *)&best_conn->addr, addr_len);
       if (ret != n) {
         spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT packet", 
-                      print_addr(&best_conn->addr), port_no(&best_conn->addr), 
+                      print_addr((struct sockaddr *)&best_conn->addr), port_no((struct sockaddr *)&best_conn->addr), 
                       static_cast<void *>(g.get()));
       } else {
         // Update bandwidth statistics based on actual packet size
@@ -970,10 +971,10 @@ void handle_srt_data(srtla_conn_group_ptr g) {
         best_conn->bytes_this_period += n;
       }
     } else {
-      int ret = sendto(srtla_sock, &buf, n, 0, &g->last_addr, addr_len);
+      int ret = sendto(srtla_sock, &buf, n, 0, (struct sockaddr *)&g->last_addr, addr_len);
       if (ret != n) {
         spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT packet", 
-                     print_addr(&g->last_addr), port_no(&g->last_addr), 
+                     print_addr((struct sockaddr *)&g->last_addr), port_no((struct sockaddr *)&g->last_addr), 
                      static_cast<void *>(g.get()));
       }
     }
@@ -1171,14 +1172,14 @@ void cleanup_groups_connections(time_t ts) {
           uint16_t header = htobe16(SRTLA_TYPE_KEEPALIVE);
           // Send multiple keepalives to increase success probability
           for (int i = 0; i < 3; i++) {
-            int ret = sendto(srtla_sock, &header, sizeof(header), 0, &conn->addr, addr_len);
+            int ret = sendto(srtla_sock, &header, sizeof(header), 0, (struct sockaddr *)&conn->addr, addr_len);
             if (ret == sizeof(header)) {
               recovered_conns++;
             }
           }
           conn->recovery_attempts++;
           spdlog::debug("[{}:{}] [Group: {}] Attempting to recover connection (attempt {}/5)", 
-                       print_addr(&conn->addr), port_no(&conn->addr), 
+                       print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
                        static_cast<void *>(group.get()), conn->recovery_attempts);
         }
         cit++;
@@ -1219,11 +1220,11 @@ void ping_all_connections(time_t ts) {
       // are inactive for more than 1/3 of the timeout
       if ((ts - conn->last_rcvd) > (CONN_TIMEOUT / 5)) {
         uint16_t header = htobe16(SRTLA_TYPE_KEEPALIVE);
-        sendto(srtla_sock, &header, sizeof(header), 0, &conn->addr, addr_len);
+        sendto(srtla_sock, &header, sizeof(header), 0, (struct sockaddr *)&conn->addr, addr_len);
         
         if (conn->recovery_attempts > 0) {
           spdlog::debug("[{}:{}] [Group: {}] Probing inactive connection", 
-                      print_addr(&conn->addr), port_no(&conn->addr), static_cast<void *>(group.get()));
+                      print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(group.get()));
         }
       }
       
@@ -1232,7 +1233,7 @@ void ping_all_connections(time_t ts) {
         // Send multiple keepalives for recovering connections
         for (int i = 0; i < 2; i++) {
           uint16_t header = htobe16(SRTLA_TYPE_KEEPALIVE);
-          sendto(srtla_sock, &header, sizeof(header), 0, &conn->addr, addr_len);
+          sendto(srtla_sock, &header, sizeof(header), 0, (struct sockaddr *)&conn->addr, addr_len);
         }
       }
     }
