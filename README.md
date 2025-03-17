@@ -32,7 +32,7 @@ SRTLA assumes that:
 
 ```bash
 # Clone the repository
-git clone https://github.com/OpenIRL/srtla.git
+git clone https://github.com/IRLServer/srtla.git
 cd srtla
 
 # Build with CMake
