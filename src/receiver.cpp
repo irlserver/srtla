@@ -416,10 +416,6 @@ void handle_srt_data(srtla_conn_group_ptr g) {
         // RTT in SRT ACK packet (at offset 20) is in microseconds.
         uint32_t rtt_us = be32toh(*((uint32_t *)(buf + 20)));
         conn->stats.rtt_ms = rtt_us / 1000; // Convert to milliseconds
-      } else {
-        spdlog::warn("[{}:{}] [Group: {}] SRT ACK packet too short ({} bytes) to extract RTT from offset 20.",
-                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
-                     static_cast<void *>(g.get()), n);
       }
 
       int ret = sendto(srtla_sock, &buf, n, 0, (struct sockaddr *)&conn->addr,
