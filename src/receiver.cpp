@@ -408,6 +408,25 @@ void handle_srt_data(srtla_conn_group_ptr g) {
   if (is_srt_ack(buf, n)) {
     // Broadcast SRT ACKs over all connections for timely delivery
     for (auto &conn : g->conns) {
+      
+      // New RTT Logic: Update rtt_ms if the incoming packet is an SRT ACK containing RTT info.
+      // Note: conn->stats.rtt_ms is initialized to 0 by the srtla_conn constructor.
+      // It will remain 0 if no valid SRT ACK with RTT is received on this connection.
+      if (n >= 24) { // SRT ACK RTT field is at offset 20 (size 4 bytes). Min length is 20+4=24.
+        // RTT in SRT ACK packet (at offset 20) is in microseconds.
+        uint32_t rtt_us = be32toh(*((uint32_t *)(buf + 20)));
+        spdlog::info("rtt_us (from offset 20): {}", rtt_us);
+        spdlog::info("packet length n: {}", n);
+        conn->stats.rtt_ms = rtt_us / 1000; // Convert to milliseconds
+        spdlog::info("[{}:{}] [Group: {}] Updated RTT for connection from SRT ACK: {} ms (from {} us)",
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
+                     static_cast<void *>(g.get()), conn->stats.rtt_ms, rtt_us);
+      } else {
+        spdlog::warn("[{}:{}] [Group: {}] SRT ACK packet too short ({} bytes) to extract RTT from offset 20.",
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
+                     static_cast<void *>(g.get()), n);
+      }
+
       int ret = sendto(srtla_sock, &buf, n, 0, (struct sockaddr *)&conn->addr,
                        addr_len);
       if (ret != n)
@@ -415,6 +434,8 @@ void handle_srt_data(srtla_conn_group_ptr g) {
                       print_addr((struct sockaddr *)&conn->addr),
                       port_no((struct sockaddr *)&conn->addr),
                       static_cast<void *>(g.get()));
+
+
     }
   } else {
     // send other packets over the most recently used SRTLA connection
@@ -561,25 +582,6 @@ void handle_srtla_data(time_t ts) {
     }
   }
   
-  // Estimate latency through timestamps (simplified - in a real implementation
-  // we would use RTT measurements)
-  uint64_t current_ms;
-  get_ms(&current_ms);
-  if (c->stats.rtt_ms == 0) {
-    // Initialize with a reasonable starting value
-    c->stats.rtt_ms = 100; // 100ms as starting value
-  } else if (n >= sizeof(srt_header_t)) {
-    // Extract the SRT timestamp, if available
-    srt_header_t *header = (srt_header_t *)buf;
-    uint32_t srt_timestamp = be32toh(header->timestamp);
-    // Simplified latency estimation
-    uint32_t estimated_latency = (current_ms % UINT32_MAX) - srt_timestamp;
-    if (estimated_latency < 5000) { // Ignore unrealistic values
-      // Weighted moving average
-      c->stats.rtt_ms = (c->stats.rtt_ms * 7 + estimated_latency * 3) / 10;
-    }
-  }
-
   // Keep track of the received data packets to send SRTLA ACKs
   int32_t sn = get_srt_sn(buf, n);
   if (sn >= 0) {
