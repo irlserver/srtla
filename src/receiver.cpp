@@ -418,9 +418,6 @@ void handle_srt_data(srtla_conn_group_ptr g) {
         spdlog::info("rtt_us (from offset 20): {}", rtt_us);
         spdlog::info("packet length n: {}", n);
         conn->stats.rtt_ms = rtt_us / 1000; // Convert to milliseconds
-        spdlog::info("[{}:{}] [Group: {}] Updated RTT for connection from SRT ACK: {} ms (from {} us)",
-                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
-                     static_cast<void *>(g.get()), conn->stats.rtt_ms, rtt_us);
       } else {
         spdlog::warn("[{}:{}] [Group: {}] SRT ACK packet too short ({} bytes) to extract RTT from offset 20.",
                      print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
