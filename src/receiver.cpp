@@ -415,8 +415,6 @@ void handle_srt_data(srtla_conn_group_ptr g) {
       if (n >= 24) { // SRT ACK RTT field is at offset 20 (size 4 bytes). Min length is 20+4=24.
         // RTT in SRT ACK packet (at offset 20) is in microseconds.
         uint32_t rtt_us = be32toh(*((uint32_t *)(buf + 20)));
-        spdlog::info("rtt_us (from offset 20): {}", rtt_us);
-        spdlog::info("packet length n: {}", n);
         conn->stats.rtt_ms = rtt_us / 1000; // Convert to milliseconds
       } else {
         spdlog::warn("[{}:{}] [Group: {}] SRT ACK packet too short ({} bytes) to extract RTT from offset 20.",
