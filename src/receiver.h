@@ -62,7 +62,6 @@ struct connection_stats {
     uint32_t last_packets_lost;      // Lost packets at last evaluation point
     uint32_t error_points;           // Error points
     uint8_t weight_percent;          // Weight in percent (0-100)
-    uint32_t rtt_ms;                 // Round-Trip Time in ms
     uint64_t last_ack_sent_time;     // Timestamp of last ACK packet
     double ack_throttle_factor;      // Factor for throttling ACK frequency (0.1-1.0)
     uint16_t nack_count;             // Number of NAKs in last period

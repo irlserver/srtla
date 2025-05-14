@@ -150,7 +150,6 @@ The central innovation of this solution is ACK throttling for load distribution.
 Connection quality is assessed by measuring and analyzing:
 
 - **Bandwidth**: Low bandwidth leads to more error points
-- **RTT**: Higher latencies lead to more error points
 - **Packet Loss**: Higher loss rates lead to more error points
 
 The weight levels are:
@@ -181,7 +180,6 @@ The following parameters can be adjusted to optimize behavior:
 
 ### Limitations
 
-- The RTT calculation is simplified and could be improved in future versions
 - The error point thresholds are static and could be dynamically adjusted to better adapt to different network situations
 - The throttling might be less effective with very short ACK intervals
 

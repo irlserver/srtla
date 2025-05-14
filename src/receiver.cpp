@@ -180,7 +180,6 @@ srtla_conn::srtla_conn(struct sockaddr_storage &_addr, time_t ts)
   stats.last_packets_lost = 0;
   stats.error_points = 0;
   stats.weight_percent = WEIGHT_FULL; // Start with full weight
-  stats.rtt_ms = 0;
   stats.last_ack_sent_time = 0;
   stats.ack_throttle_factor = 1.0;  // Start without throttling
   stats.nack_count = 0;
@@ -561,25 +560,6 @@ void handle_srtla_data(time_t ts) {
     }
   }
   
-  // Estimate latency through timestamps (simplified - in a real implementation
-  // we would use RTT measurements)
-  uint64_t current_ms;
-  get_ms(&current_ms);
-  if (c->stats.rtt_ms == 0) {
-    // Initialize with a reasonable starting value
-    c->stats.rtt_ms = 100; // 100ms as starting value
-  } else if (n >= sizeof(srt_header_t)) {
-    // Extract the SRT timestamp, if available
-    srt_header_t *header = (srt_header_t *)buf;
-    uint32_t srt_timestamp = be32toh(header->timestamp);
-    // Simplified latency estimation
-    uint32_t estimated_latency = (current_ms % UINT32_MAX) - srt_timestamp;
-    if (estimated_latency < 5000) { // Ignore unrealistic values
-      // Weighted moving average
-      c->stats.rtt_ms = (c->stats.rtt_ms * 7 + estimated_latency * 3) / 10;
-    }
-  }
-
   // Keep track of the received data packets to send SRTLA ACKs
   int32_t sn = get_srt_sn(buf, n);
   if (sn >= 0) {
@@ -925,15 +905,6 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
             conn->stats.error_points += 30;
         }
         
-        // RTT evaluation
-        if (conn->stats.rtt_ms > 1000) { // > 1 sec
-            conn->stats.error_points += 30;
-        } else if (conn->stats.rtt_ms > 500) { // > 500ms
-            conn->stats.error_points += 15;
-        } else if (conn->stats.rtt_ms > 200) { // > 200ms
-            conn->stats.error_points += 5;
-        }
-        
         // Packet loss evaluation
         if (packet_loss_ratio > 0.20) { // > 20% loss
             conn->stats.error_points += 40;
@@ -951,10 +922,10 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         // Calculate bandwidth ratio (actual/expected)
         double bandwidth_ratio = bandwidth_kbits_per_sec / expected_kbits_per_sec;
         
-        spdlog::debug("[{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of expected), Loss: {:.2f}%, RTT: {}ms, Error points: {}",
+        spdlog::debug("[{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of expected), Loss: {:.2f}%, Error points: {}",
             print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
             bandwidth_kbits_per_sec, bandwidth_ratio * 100, packet_loss_ratio * 100, 
-            conn->stats.rtt_ms, conn->stats.error_points);
+            conn->stats.error_points);
     }
     
     // Adjust connection weights based on error points
