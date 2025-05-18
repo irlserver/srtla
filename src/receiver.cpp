@@ -355,6 +355,35 @@ int conn_reg(struct sockaddr_storage *addr, char *in_buf, time_t ts) {
       return -1;
     }
 
+    // Check if this connection was recently removed
+    for (auto &existing_conn : group->conns) {
+      if (existing_conn->addr.ss_family == addr->ss_family &&
+          ((existing_conn->addr.ss_family == AF_INET6 &&
+            const_time_cmp(&((struct sockaddr_in6 *)(&existing_conn->addr))->sin6_addr,
+                           &((struct sockaddr_in6 *)addr)->sin6_addr,
+                           sizeof(struct in6_addr)) == 0 &&
+            ((struct sockaddr_in6 *)(&existing_conn->addr))->sin6_port ==
+                ((struct sockaddr_in6 *)addr)->sin6_port) ||
+           (existing_conn->addr.ss_family == AF_INET &&
+            const_time_cmp(&((struct sockaddr_in *)(&existing_conn->addr))->sin_addr,
+                           &((struct sockaddr_in *)addr)->sin_addr,
+                           sizeof(struct in_addr)) == 0 &&
+            ((struct sockaddr_in *)(&existing_conn->addr))->sin_port ==
+                ((struct sockaddr_in *)addr)->sin_port))) {
+        
+        // If the connection was removed less than RECONNECTION_COOLDOWN seconds ago, reject it
+        if (existing_conn->stats.last_removal_time > 0 && 
+            (ts - existing_conn->stats.last_removal_time) < RECONNECTION_COOLDOWN) {
+          srtla_send_reg_err(addr);
+          spdlog::warn("[{}:{}] [Group: {}] Connection registration rejected: Cooldown period active ({} seconds remaining)",
+            print_addr((struct sockaddr *)addr), port_no((struct sockaddr *)addr),
+            static_cast<void *>(group.get()),
+            RECONNECTION_COOLDOWN - (ts - existing_conn->stats.last_removal_time));
+          return -1;
+        }
+      }
+    }
+
     conn = std::make_shared<srtla_conn>(*addr, ts);
     already_registered = false;
   }
@@ -906,6 +935,8 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
                 spdlog::warn("[{}:{}] [Group: {}] Removing connection due to persistent low bandwidth",
                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
                     static_cast<void *>(this));
+                // Store the removal time before removing the connection
+                conn->stats.last_removal_time = current_time;
                 // Remove the connection from the group
                 conns.erase(std::remove(conns.begin(), conns.end(), conn), conns.end());
                 continue;

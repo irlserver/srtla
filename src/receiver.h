@@ -47,6 +47,7 @@ extern "C" {
 #define WEIGHT_DEGRADED 70
 #define WEIGHT_POOR 40
 #define WEIGHT_CRITICAL 10
+#define RECONNECTION_COOLDOWN 5    // Seconds to wait before allowing reconnection
 
 #define RECV_ACK_INT 10
 
@@ -65,7 +66,8 @@ struct connection_stats {
     uint64_t last_ack_sent_time;     // Timestamp of last ACK packet
     double ack_throttle_factor;      // Factor for throttling ACK frequency (0.1-1.0)
     uint16_t nack_count;
-    uint8_t consecutive_low_bw;             // Number of NAKs in last period
+    uint8_t consecutive_low_bw;      // Number of consecutive evaluations below 100 Kbps
+    time_t last_removal_time;        // Time when the connection was last removed
 };
 
 struct srtla_conn {
