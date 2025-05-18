@@ -375,10 +375,14 @@ int conn_reg(struct sockaddr_storage *addr, char *in_buf, time_t ts) {
         if (existing_conn->stats.last_removal_time > 0 && 
             (ts - existing_conn->stats.last_removal_time) < RECONNECTION_COOLDOWN) {
           srtla_send_reg_err(addr);
+          int remaining_seconds = RECONNECTION_COOLDOWN - (ts - existing_conn->stats.last_removal_time);
           spdlog::warn("[{}:{}] [Group: {}] Connection registration rejected: Cooldown period active ({} seconds remaining)",
             print_addr((struct sockaddr *)addr), port_no((struct sockaddr *)addr),
-            static_cast<void *>(group.get()),
-            RECONNECTION_COOLDOWN - (ts - existing_conn->stats.last_removal_time));
+            static_cast<void *>(group.get()), remaining_seconds);
+          spdlog::info("[{}:{}] [Group: {}] Connection was removed at timestamp {}, cooldown ends at {}",
+            print_addr((struct sockaddr *)addr), port_no((struct sockaddr *)addr),
+            static_cast<void *>(group.get()), existing_conn->stats.last_removal_time,
+            existing_conn->stats.last_removal_time + RECONNECTION_COOLDOWN);
           return -1;
         }
       }
@@ -937,6 +941,12 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
                     static_cast<void *>(this));
                 // Store the removal time before removing the connection
                 conn->stats.last_removal_time = current_time;
+                spdlog::info("[{}:{}] [Group: {}] Connection marked for cooldown until timestamp {}",
+                    print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
+                    static_cast<void *>(this), current_time + RECONNECTION_COOLDOWN);
+                spdlog::warn("[{}:{}] [Group: {}] Connection removed and cooldown period started ({} seconds)",
+                    print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
+                    static_cast<void *>(this), RECONNECTION_COOLDOWN);
                 // Remove the connection from the group
                 conns.erase(std::remove(conns.begin(), conns.end(), conn), conns.end());
                 continue;
