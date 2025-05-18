@@ -531,13 +531,13 @@ int open_socket(conn_t *c, int quiet) {
   }
 
   // Set up the socket
-  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  int fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
   if (fd < 0) {
     spdlog::error("Failed to open a socket");
     return -1;
   }
-  int bufsize = 0x800000;
-  int ret = setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bufsize, 4);
+  int bufsize = SEND_BUF_SIZE;
+  int ret = setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
   if (ret != 0) {
     spdlog::error("Failed to set send buffer size ({} bytes)", bufsize);
     goto err;
