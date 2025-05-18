@@ -636,7 +636,7 @@ int resolve_srt_addr(const char *host, const char *port) {
     return -1;
   }
 
-  int tmp_sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+  int tmp_sock = socket(AF_INET, SOCK_DGRAM, 0);
   if (tmp_sock < 0) {
     spdlog::error("Failed to create a UDP socket");
     return -1;
