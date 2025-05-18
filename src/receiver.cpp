@@ -496,7 +496,7 @@ void handle_srtla_data(time_t ts) {
 
   // Open a connection to the SRT server for the group
   if (g->srt_sock < 0) {
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    int sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (sock < 0) {
       spdlog::error("[Group: {}] Failed to create an SRT socket",
                     static_cast<void *>(g.get()));
@@ -636,14 +636,14 @@ int resolve_srt_addr(const char *host, const char *port) {
     return -1;
   }
 
-  int tmp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+  int tmp_sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
   if (tmp_sock < 0) {
     spdlog::error("Failed to create a UDP socket");
     return -1;
   }
 
-  int bufsize = 0x800000;
-  ret = setsockopt(tmp_sock, SOL_SOCKET, SO_SNDBUF, &bufsize, 4);
+  int bufsize = SEND_BUF_SIZE;
+  ret = setsockopt(tmp_sock, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
   if (ret != 0) {
     spdlog::error("Failed to set a send buffer size ({} bytes)", bufsize);
     return -1;
@@ -776,8 +776,8 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  int bufsize = 0x800000;
-  ret = setsockopt(srtla_sock, SOL_SOCKET, SO_SNDBUF, &bufsize, 4);
+  int bufsize = SEND_BUF_SIZE;
+  ret = setsockopt(srtla_sock, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
   if (ret != 0) {
     spdlog::error("Failed to set a send buffer size ({} bytes)", bufsize);
     return -1;
