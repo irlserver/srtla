@@ -43,6 +43,7 @@ extern "C" {
 // Adjustment for Problem 2: Constants for connection quality evaluation
 #define CONN_QUALITY_EVAL_PERIOD 5 // Shorter interval for better responsiveness
 #define ACK_THROTTLE_INTERVAL 100  // Milliseconds between ACK packets for client control
+#define MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS 1000.0 // Minimum total bandwidth for acceptable streaming quality (1 Mbps)
 #define WEIGHT_FULL 100
 #define WEIGHT_DEGRADED 70
 #define WEIGHT_POOR 40
