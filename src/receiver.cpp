@@ -1043,10 +1043,14 @@ void srtla_conn_group::adjust_connection_weights() {
         // Weight adjustment based on error points
         if (conn->stats.error_points >= 40) {
             new_weight = WEIGHT_CRITICAL;
-        } else if (conn->stats.error_points >= 20) {
+        } else if (conn->stats.error_points >= 25) {
             new_weight = WEIGHT_POOR;
+        } else if (conn->stats.error_points >= 15) {
+            new_weight = WEIGHT_FAIR;
         } else if (conn->stats.error_points >= 10) {
             new_weight = WEIGHT_DEGRADED;
+        } else if (conn->stats.error_points >= 5) {
+            new_weight = WEIGHT_EXCELLENT;
         } else {
             new_weight = WEIGHT_FULL;
         }
