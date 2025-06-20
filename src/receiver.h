@@ -43,6 +43,7 @@ extern "C" {
 // Adjustment for Problem 2: Constants for connection quality evaluation
 #define CONN_QUALITY_EVAL_PERIOD 5 // Shorter interval for better responsiveness
 #define ACK_THROTTLE_INTERVAL 100  // Milliseconds between ACK packets for client control
+#define MIN_ACK_RATE 0.2           // Minimum ACK rate (20%) to keep connections alive
 #define MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS 1000.0 // Minimum total bandwidth for acceptable streaming quality (1 Mbps)
 #define WEIGHT_FULL 100
 #define WEIGHT_EXCELLENT 85
@@ -106,7 +107,6 @@ struct srtla_conn_group {
     // Methods for load balancing and connection evaluation
     void evaluate_connection_quality(time_t current_time);
     void adjust_connection_weights();
-    void control_ack_frequency();
 };
 typedef std::shared_ptr<srtla_conn_group> srtla_conn_group_ptr;
 

@@ -439,18 +439,19 @@ void register_packet(srtla_conn_group_ptr group, srtla_conn_ptr conn,
   get_ms(&current_ms);
 
   if (conn->recv_idx == RECV_ACK_INT) {
-    // Check if we should send the ACK based on the throttling factor
     bool should_send = true;
     
+    // Apply throttling based on time intervals using pre-calculated factor
     if (conn->stats.ack_throttle_factor < 1.0) {
-      // Calculate the time window for ACKs based on throttling factor
-      // For low factors, ACKs are sent less frequently
       uint64_t min_interval = ACK_THROTTLE_INTERVAL / conn->stats.ack_throttle_factor;
       
-      // If not enough time has passed since the last ACK, we don't send it
       if (conn->stats.last_ack_sent_time > 0 && 
           current_ms < conn->stats.last_ack_sent_time + min_interval) {
         should_send = false;
+        spdlog::trace("[{}:{}] [Group: {}] ACK throttled, next in {} ms (factor: {:.2f})",
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(group.get()),
+                     (conn->stats.last_ack_sent_time + min_interval) - current_ms,
+                     conn->stats.ack_throttle_factor);
       }
     }
     
@@ -466,6 +467,9 @@ void register_packet(srtla_conn_group_ptr group, srtla_conn_ptr conn,
       } else {
         // Update the timestamp of the last sent ACK
         conn->stats.last_ack_sent_time = current_ms;
+        spdlog::trace("[{}:{}] [Group: {}] Sent SRTLA ACK (throttle factor: {:.2f})",
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(group.get()),
+                     conn->stats.ack_throttle_factor);
       }
     }
 
@@ -1024,9 +1028,6 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
     // Adjust connection weights based on error points
     adjust_connection_weights();
     
-    // Control ACK frequency based on connection quality
-    control_ack_frequency();
-    
     last_quality_eval = current_time;
 }
 
@@ -1034,10 +1035,19 @@ void srtla_conn_group::adjust_connection_weights() {
     if (conns.empty())
         return;
         
-    bool any_weight_changed = false;
+    bool any_change = false;
+    
+    // Log current state before adjustment
+    spdlog::debug("[Group: {}] Evaluating weights and throttle factors for {} connections", 
+                 static_cast<void *>(this), conns.size());
+    
+    // First pass: Calculate weights and find best performing connection
+    uint8_t max_weight = 0;
+    int active_conns = 0;
     
     // Adjust weights based on error points
     for (auto &conn : conns) {
+        uint8_t old_weight = conn->stats.weight_percent;
         uint8_t new_weight;
         
         // Weight adjustment based on error points
@@ -1055,46 +1065,78 @@ void srtla_conn_group::adjust_connection_weights() {
             new_weight = WEIGHT_FULL;
         }
         
-        // Only update and log if weight actually changed  
-        if (new_weight != conn->stats.weight_percent) {
-            spdlog::trace("[{}:{}] [Group: {}] Connection weight adjusted: {}% -> {}%",
-                print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
-                conn->stats.weight_percent, new_weight);
+        // Update weight if changed
+        if (new_weight != old_weight) {
             conn->stats.weight_percent = new_weight;
-            any_weight_changed = true;
+            any_change = true;
         }
-    }
-    
-    if (any_weight_changed) {
-        spdlog::debug("[Group: {}] Adjusting connection weights", static_cast<void *>(this));
-    }
-}
-
-// This function adjusts the ACK frequency based on connection quality
-// This indirectly influences how the client selects connections
-void srtla_conn_group::control_ack_frequency() {
-    if (conns.empty())
-        return;
-    
-    bool any_throttle_changed = false;
-    
-    for (auto &conn : conns) {
-        // Calculate ACK throttling factor based on weight
-        // The lower the weight, the stronger the throttling
-        double new_throttle_factor = static_cast<double>(conn->stats.weight_percent) / 100.0;
         
-        // Only update and log if throttle factor actually changed (with small tolerance for floating point comparison)
-        if (std::abs(new_throttle_factor - conn->stats.ack_throttle_factor) > 0.01) {
-            spdlog::trace("[{}:{}] [Group: {}] ACK throttle factor changed: {:.2f} -> {:.2f}",
-                print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
-                conn->stats.ack_throttle_factor, new_throttle_factor);
-            conn->stats.ack_throttle_factor = new_throttle_factor;
-            any_throttle_changed = true;
+        // Track maximum weight for throttle calculation
+        if (!conn_timed_out(conn, time(nullptr))) {
+            max_weight = std::max(max_weight, conn->stats.weight_percent);
+            active_conns++;
         }
     }
     
-    if (any_throttle_changed) {
-        spdlog::debug("[Group: {}] Adjusting ACK frequency for load balancing", static_cast<void *>(this));
+    // Second pass: Calculate throttle factors based on weights
+    if (load_balancing_enabled && active_conns > 1) {
+        for (auto &conn : conns) {
+            double old_throttle = conn->stats.ack_throttle_factor;
+            double new_throttle;
+            
+            // Calculate throttle based on both absolute and relative quality
+            // This naturally handles all cases:
+            // - Good connections (high absolute weight) get high throttle
+            // - Best connections (relative = 1.0) are limited only by absolute quality
+            // - Poor connections get limited even if they're the "best" available
+            
+            double absolute_quality = static_cast<double>(conn->stats.weight_percent) / WEIGHT_FULL;
+            double relative_quality = static_cast<double>(conn->stats.weight_percent) / max_weight;
+            
+            // Use the lower of absolute or relative quality
+            // This ensures poor connections never get full rate
+            new_throttle = std::min(absolute_quality, relative_quality);
+
+            // Note: WEIGHT_CRITICAL (e.g. 10%) and MIN_ACK_RATE (e.g. 20%) serve different purposes:
+            // - WEIGHT_CRITICAL: How bad the connection is (quality assessment)
+            // - MIN_ACK_RATE: Minimum ACKs to keep connection alive (operational limit)
+            // This separation allows critical connections to be marked as 10% quality
+            // while still receiving 20% ACKs for monitoring and recovery potential
+            new_throttle = std::max(MIN_ACK_RATE, new_throttle);
+            
+            // Update throttle factor only if changed
+            if (std::abs(old_throttle - new_throttle) > 0.01) {
+                conn->stats.ack_throttle_factor = new_throttle;
+                any_change = true;
+            }
+        }
+    } else {
+        // Single connection or load balancing disabled - no throttling
+        for (auto &conn : conns) {
+            if (conn->stats.ack_throttle_factor != 1.0) {
+                conn->stats.ack_throttle_factor = 1.0;
+                any_change = true;
+            }
+        }
+    }
+    
+    // Log all changes in one comprehensive summary
+    if (any_change) {
+        spdlog::info("[Group: {}] Connection parameters adjusted:", static_cast<void *>(this));
+        
+        for (auto &conn : conns) {
+            spdlog::info("  [{}:{}] Weight: {}%, Throttle: {:.2f}, Error points: {}, "
+                        "Bandwidth: {} bytes, Packets: {}, Loss: {}",
+                        print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
+                        conn->stats.weight_percent,
+                        conn->stats.ack_throttle_factor,
+                        conn->stats.error_points,
+                        conn->stats.bytes_received,
+                        conn->stats.packets_received,
+                        conn->stats.packets_lost);
+        }
+    } else {
+        spdlog::debug("[Group: {}] No weight or throttle adjustments needed", static_cast<void *>(this));
     }
 }
 
