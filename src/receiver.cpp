@@ -933,28 +933,14 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
     // Minimum expected bandwidth threshold - dynamic based on connection count
     // This represents the minimum acceptable quality, not a target to achieve
     // The actual target bitrate is set by the client and unknown to us
-    double min_total_bandwidth_kbps = MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS;
-    double min_expected_kbits_per_sec = min_total_bandwidth_kbps / bandwidth_info.size();
+    // For 1 conn: 1000 kbps, 2 conns: 500 kbps each, 3 conns: 333 kbps each, etc.
+    double min_expected_kbits_per_sec = std::max(100.0, MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS / bandwidth_info.size());
     
-    // Set reasonable bounds: not less than 100 kbps (poor mobile) and not more than 500 kbps
-    min_expected_kbits_per_sec = std::max(100.0, std::min(500.0, min_expected_kbits_per_sec));
-    
-    // Check if all connections have similar performance (within 30% of median)
-    bool all_similar = true;
-    if (median_kbits_per_sec > 0) {
-        for (const auto &bw : all_bandwidths) {
-            if (bw < median_kbits_per_sec * 0.7 || bw > median_kbits_per_sec * 1.3) {
-                all_similar = false;
-                break;
-            }
-        }
-    }
-    
-    // Log the total and expected bandwidth with new metrics
+    // Log the total and expected bandwidth
     spdlog::debug("[Group: {}] Total bandwidth: {:.2f} kbits/s, Max: {:.2f} kbits/s, Median: {:.2f} kbits/s, "
-                 "Min expected per conn: {:.2f} kbps, All similar: {}",
+                 "Min expected per conn: {:.2f} kbps",
                  static_cast<void *>(this), total_kbits_per_sec, max_kbits_per_sec, median_kbits_per_sec, 
-                 min_expected_kbits_per_sec, all_similar);
+                 min_expected_kbits_per_sec);
 
     // Second pass - evaluate each connection against dynamic thresholds
     for (auto &info : bandwidth_info) {
@@ -965,49 +951,46 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         // Reset error points for the new evaluation period
         conn->stats.error_points = 0;
 
-        // Adaptive bandwidth evaluation strategy
+        // Determine expected bandwidth for this connection
         double expected_kbits_per_sec;
+        bool is_poor_connection = bandwidth_kbits_per_sec < median_kbits_per_sec * 0.5;
         
-        if (all_similar) {
-            // All connections are similar - use unified expectation for fair distribution
-            // Use 80% of median to allow for normal variations
-            expected_kbits_per_sec = median_kbits_per_sec * 0.8;
-            
-            // But respect the minimum threshold
-            expected_kbits_per_sec = std::max(expected_kbits_per_sec, min_expected_kbits_per_sec);
-            
-            spdlog::trace("[{}:{}] Using median-based expectation: {:.2f} kbps",
-                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec);
+        // Determine expected bandwidth
+        // Poor connections use minimum threshold, all others target median
+        if (is_poor_connection) {
+            expected_kbits_per_sec = min_expected_kbits_per_sec;
         } else {
-            // Mixed quality connections - use adaptive strategy
-            
-            // Calculate expected based on current performance
-            expected_kbits_per_sec = bandwidth_kbits_per_sec * 0.7;
-            
-            // For good connections: expect them to maintain 70% of their performance
-            // For poor connections: use minimum threshold
-            expected_kbits_per_sec = std::max(min_expected_kbits_per_sec, 
-                                             std::min(expected_kbits_per_sec, max_kbits_per_sec));
-            
-            spdlog::trace("[{}:{}] Using adaptive expectation: {:.2f} kbps",
-                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec);
+            expected_kbits_per_sec = median_kbits_per_sec;
         }
+        
+        // Ensure we meet the minimum threshold
+        expected_kbits_per_sec = std::max(expected_kbits_per_sec, min_expected_kbits_per_sec);
+        
+        spdlog::trace("[{}:{}] Expected: {:.2f} kbps (bandwidth: {:.2f}, median: {:.2f}, poor: {})",
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec, 
+                     bandwidth_kbits_per_sec, median_kbits_per_sec, is_poor_connection);
 
         // Dynamic bandwidth evaluation based on expected bandwidth
-        if (bandwidth_kbits_per_sec < expected_kbits_per_sec * 0.3) {
-            // Significantly underperforming - high penalty
+        double performance_ratio = bandwidth_kbits_per_sec / expected_kbits_per_sec;
+        
+        // Evaluate underperformance (applies to both modes)
+        if (performance_ratio < 0.3) {
+            // Significantly underperforming
             conn->stats.error_points += 40;
-        } else if (bandwidth_kbits_per_sec < expected_kbits_per_sec * 0.5) {
+        } else if (performance_ratio < 0.5) {
             // Moderately underperforming
             conn->stats.error_points += 25;
-        } else if (bandwidth_kbits_per_sec < expected_kbits_per_sec * 0.7) {
+        } else if (performance_ratio < 0.7) {
             // Slightly underperforming
             conn->stats.error_points += 15;
-        } else if (bandwidth_kbits_per_sec < expected_kbits_per_sec * 0.85) {
-            // Marginally below expected - minimal penalty
+        } else if (performance_ratio < 0.85) {
+            // Marginally below expected
             conn->stats.error_points += 5;
         }
-        // Connections performing at 85%+ of expected bandwidth get no penalty
+
+        spdlog::trace("[{}:{}] Performance ratio: {:.2f} (bandwidth: {:.2f}, expected: {:.2f})",
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), performance_ratio,
+                     bandwidth_kbits_per_sec, expected_kbits_per_sec);
 
         // Packet loss evaluation
             if (packet_loss_ratio > 0.20) { // > 20% loss
@@ -1023,7 +1006,7 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         // Reset NAK count
         conn->stats.nack_count = 0;
 
-        spdlog::trace("[{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of expected), Loss: {:.2f}%, Error points: {}",
+        spdlog::debug("  [{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of expected), Loss: {:.2f}%, Error points: {}",
                 print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
                 bandwidth_kbits_per_sec, (bandwidth_kbits_per_sec / expected_kbits_per_sec) * 100, packet_loss_ratio * 100,
                 conn->stats.error_points);
