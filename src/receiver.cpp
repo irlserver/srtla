@@ -1020,13 +1020,13 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
                 conn->stats.error_points += 5;
             }
 
-            // Reset NAK count
-            conn->stats.nack_count = 0;
+        // Reset NAK count
+        conn->stats.nack_count = 0;
 
         spdlog::trace("[{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of expected), Loss: {:.2f}%, Error points: {}",
-          print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
+                print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
                 bandwidth_kbits_per_sec, (bandwidth_kbits_per_sec / expected_kbits_per_sec) * 100, packet_loss_ratio * 100,
-            conn->stats.error_points);
+                conn->stats.error_points);
     }
     
     // Adjust connection weights based on error points
