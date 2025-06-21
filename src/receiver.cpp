@@ -1030,12 +1030,12 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
     }
     
     // Adjust connection weights based on error points
-    adjust_connection_weights();
+    adjust_connection_weights(current_time);
     
     last_quality_eval = current_time;
 }
 
-void srtla_conn_group::adjust_connection_weights() {
+void srtla_conn_group::adjust_connection_weights(time_t current_time) {
     if (conns.empty())
         return;
         
@@ -1076,11 +1076,14 @@ void srtla_conn_group::adjust_connection_weights() {
         }
         
         // Track maximum weight for throttle calculation
-        if (!conn_timed_out(conn, time(nullptr))) {
+        if (!conn_timed_out(conn, current_time)) {
             max_weight = std::max(max_weight, conn->stats.weight_percent);
             active_conns++;
         }
     }
+    
+    spdlog::debug("[Group: {}] Active connections: {}, max_weight: {}, load_balancing_enabled: {}", 
+                 static_cast<void *>(this), active_conns, max_weight, load_balancing_enabled);
     
     // Second pass: Calculate throttle factors based on weights
     if (load_balancing_enabled && active_conns > 1) {

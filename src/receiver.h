@@ -106,7 +106,7 @@ struct srtla_conn_group {
     
     // Methods for load balancing and connection evaluation
     void evaluate_connection_quality(time_t current_time);
-    void adjust_connection_weights();
+    void adjust_connection_weights(time_t current_time);
 };
 typedef std::shared_ptr<srtla_conn_group> srtla_conn_group_ptr;
 
