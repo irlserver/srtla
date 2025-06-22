@@ -1174,25 +1174,10 @@ bool conn_timed_out(srtla_conn_ptr c, time_t ts) {
 int main(int argc, char **argv) {
   argparse::ArgumentParser args("srtla_rec", VERSION);
 
-  args.add_argument("--srtla_port")
-      .help("Port to bind the SRTLA socket to")
-      .default_value((uint16_t)5000)
-      .scan<'d', uint16_t>();
-  args.add_argument("--srt_hostname")
-      .help("Hostname of the downstream SRT server")
-      .default_value(std::string{"127.0.0.1"});
-  args.add_argument("--srt_port")
-      .help("Port of the downstream SRT server")
-      .default_value((uint16_t)5001)
-      .scan<'d', uint16_t>();
-  args.add_argument("--verbose")
-      .help("Enable verbose logging")
-      .default_value(false)
-      .implicit_value(true);
-  args.add_argument("--debug")
-      .help("Enable debug logging")
-      .default_value(false)
-      .implicit_value(true);
+  args.add_argument("--srtla_port").help("Port to bind the SRTLA socket to").default_value((uint16_t)5000).scan<'d', uint16_t>();
+  args.add_argument("--srt_hostname").help("Hostname of the downstream SRT server").default_value(std::string{"127.0.0.1"});
+  args.add_argument("--srt_port").help("Port of the downstream SRT server").default_value((uint16_t)4001).scan<'d', uint16_t>();
+  args.add_argument("--log_level").help("Set logging level (trace, debug, info, warn, error, critical)").default_value(std::string{"info"});
 
   try {
     args.parse_args(argc, argv);
@@ -1205,12 +1190,25 @@ int main(int argc, char **argv) {
   uint16_t srtla_port = args.get<uint16_t>("--srtla_port");
   std::string srt_hostname = args.get<std::string>("--srt_hostname");
   std::string srt_port = std::to_string(args.get<uint16_t>("--srt_port"));
+  std::string log_level = args.get<std::string>("--log_level");
 
-  if (args.get<bool>("--verbose"))
+  // Set log level based on the provided argument
+  if (log_level == "trace") {
     spdlog::set_level(spdlog::level::trace);
-
-  if (args.get<bool>("--debug"))
+  } else if (log_level == "debug") {
     spdlog::set_level(spdlog::level::debug);
+  } else if (log_level == "info") {
+    spdlog::set_level(spdlog::level::info);
+  } else if (log_level == "warn") {
+    spdlog::set_level(spdlog::level::warn);
+  } else if (log_level == "error") {
+    spdlog::set_level(spdlog::level::err);
+  } else if (log_level == "critical") {
+    spdlog::set_level(spdlog::level::critical);
+  } else {
+    spdlog::warn("Invalid log level '{}' specified, using 'info' as default", log_level);
+    spdlog::set_level(spdlog::level::info);
+  }
 
   // Try to detect if the SRT server is reachable.
   int ret = resolve_srt_addr(srt_hostname.c_str(), srt_port.c_str());
