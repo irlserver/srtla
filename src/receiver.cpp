@@ -921,13 +921,40 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         max_kbits_per_sec = std::max(max_kbits_per_sec, info.bandwidth_kbits_per_sec);
     }
     
-    // Calculate median bandwidth for more robust reference
-    if (!all_bandwidths.empty()) {
-        std::sort(all_bandwidths.begin(), all_bandwidths.end());
-        size_t mid = all_bandwidths.size() / 2;
-        median_kbits_per_sec = all_bandwidths.size() % 2 == 0 ? 
-            (all_bandwidths[mid-1] + all_bandwidths[mid]) / 2.0 : 
-            all_bandwidths[mid];
+    // Calculate median only from connections that are reasonably good
+    // Use threshold to exclude poor connections from median calculation
+    if (!all_bandwidths.empty() && max_kbits_per_sec > 0) {
+        double good_threshold = max_kbits_per_sec * GOOD_CONNECTION_THRESHOLD;
+        std::vector<double> good_bandwidths;
+        
+        for (const auto &bw : all_bandwidths) {
+            if (bw >= good_threshold) {
+                good_bandwidths.push_back(bw);
+            }
+        }
+        
+        // Calculate median from good connections only
+        if (!good_bandwidths.empty()) {
+            std::sort(good_bandwidths.begin(), good_bandwidths.end());
+            size_t mid = good_bandwidths.size() / 2;
+            median_kbits_per_sec = good_bandwidths.size() % 2 == 0 ? 
+                (good_bandwidths[mid-1] + good_bandwidths[mid]) / 2.0 : 
+                good_bandwidths[mid];
+                
+            spdlog::trace("[Group: {}] Median from good connections (>= {:.2f} kbps): {:.2f} kbps ({} of {} connections)",
+                         static_cast<void *>(this), good_threshold, median_kbits_per_sec, 
+                         good_bandwidths.size(), all_bandwidths.size());
+        } else {
+            // Fallback: use all connections if none meet the threshold
+            std::sort(all_bandwidths.begin(), all_bandwidths.end());
+            size_t mid = all_bandwidths.size() / 2;
+            median_kbits_per_sec = all_bandwidths.size() % 2 == 0 ? 
+                (all_bandwidths[mid-1] + all_bandwidths[mid]) / 2.0 : 
+                all_bandwidths[mid];
+                
+            spdlog::trace("[Group: {}] Using fallback median from all connections: {:.2f} kbps",
+                         static_cast<void *>(this), median_kbits_per_sec);
+        }
     }
 
     // Minimum expected bandwidth threshold - dynamic based on connection count
@@ -953,7 +980,8 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
 
         // Determine expected bandwidth for this connection
         double expected_kbits_per_sec;
-        bool is_poor_connection = bandwidth_kbits_per_sec < median_kbits_per_sec * 0.5;
+        // A connection is poor if it's significantly below the median target
+        bool is_poor_connection = bandwidth_kbits_per_sec < median_kbits_per_sec * GOOD_CONNECTION_THRESHOLD;
         
         // Determine expected bandwidth
         // Poor connections use minimum threshold, all others target median
