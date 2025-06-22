@@ -556,6 +556,10 @@ void handle_srtla_data(time_t ts) {
     c->stats.packets_lost++;
     c->stats.nack_count++;
     
+    spdlog::debug("[{}:{}] [Group: {}] Received NAK packet. Total NAKs: {}, Total loss: {}", 
+                 print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()),
+                 c->stats.nack_count, c->stats.packets_lost);
+    
     // For high NAK rates, re-evaluate connection quality immediately
     if (c->stats.nack_count > 5 && (g->last_quality_eval + 1) < ts) {
       g->evaluate_connection_quality(ts);
