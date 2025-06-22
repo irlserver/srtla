@@ -1108,10 +1108,19 @@ void srtla_conn_group::adjust_connection_weights() {
             // while still receiving 20% ACKs for monitoring and recovery potential
             new_throttle = std::max(MIN_ACK_RATE, new_throttle);
             
+            spdlog::debug("[{}:{}] Throttle calculation: weight={}, max_weight={}, "
+                         "absolute={:.2f}, relative={:.2f}, new_throttle={:.2f}, old_throttle={:.2f}",
+                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
+                         conn->stats.weight_percent, max_weight,
+                         absolute_quality, relative_quality, new_throttle, old_throttle);
+            
             // Update throttle factor only if changed
             if (std::abs(old_throttle - new_throttle) > 0.01) {
                 conn->stats.ack_throttle_factor = new_throttle;
                 any_change = true;
+                spdlog::debug("[{}:{}] Throttle factor updated: {:.2f} -> {:.2f}",
+                             print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
+                             old_throttle, new_throttle);
             }
         }
     } else {
