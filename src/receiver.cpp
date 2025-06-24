@@ -186,6 +186,7 @@ srtla_conn::srtla_conn(struct sockaddr_storage &_addr, time_t ts)
   stats.nack_count = 0;
   
   recovery_start = 0;
+  connection_start = ts;
 }
 
 srtla_conn_group::srtla_conn_group(char *client_id, time_t ts)
@@ -974,6 +975,21 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         auto conn = info.conn;
         double bandwidth_kbits_per_sec = info.bandwidth_kbits_per_sec;
         double packet_loss_ratio = info.packet_loss_ratio;
+
+        // Check if connection is still in grace period
+        bool in_grace_period = (current_time - conn->connection_start) < CONNECTION_GRACE_PERIOD;
+
+        if (in_grace_period) {
+            spdlog::debug("[{}:{}] Connection in grace period ({} seconds remaining), skipping penalties",
+                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
+                         CONNECTION_GRACE_PERIOD - (current_time - conn->connection_start));
+
+            // During grace period, only log statistics but don't apply penalties
+            spdlog::debug("  [{}:{}] [Group: {}] Connection stats (grace period): BW: {:.2f} kbits/s, Loss: {:.2f}%, Error points: {}",
+                    print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
+                    bandwidth_kbits_per_sec, packet_loss_ratio * 100, conn->stats.error_points);
+            continue;
+        }
 
         // Reset error points for the new evaluation period
         conn->stats.error_points = 0;

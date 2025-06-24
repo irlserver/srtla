@@ -47,6 +47,7 @@ extern "C" {
 #define MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS 1000.0 // Minimum total bandwidth for acceptable streaming quality (1 Mbps)
 #define MAX_ERROR_POINTS 40        // Maximum error points to prevent runaway penalties
 #define GOOD_CONNECTION_THRESHOLD 0.5 // Threshold for considering a connection "good" (50% of max bandwidth)
+#define CONNECTION_GRACE_PERIOD 30 // Grace period in seconds before applying penalties
 #define WEIGHT_FULL 100
 #define WEIGHT_EXCELLENT 85
 #define WEIGHT_DEGRADED 70
@@ -82,6 +83,7 @@ struct srtla_conn {
     // Fields for connection quality evaluation
     connection_stats stats = {};
     time_t recovery_start = 0; // Time when the connection began to recover
+    time_t connection_start = 0; // Time when the connection was established
 
     srtla_conn(struct sockaddr_storage &_addr, time_t ts);
 };
