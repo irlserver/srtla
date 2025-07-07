@@ -969,7 +969,7 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
             expected_kbits_per_sec = std::max(expected_kbits_per_sec, min_expected_kbits_per_sec);
             
             spdlog::trace("[{}:{}] Using median-based expectation: {:.2f} kbps",
-                         print_addr(&conn->addr), port_no(&conn->addr), expected_kbits_per_sec);
+                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec);
         } else {
             // Mixed quality connections - use adaptive strategy
             
@@ -982,7 +982,7 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
                                              std::min(expected_kbits_per_sec, max_kbits_per_sec));
             
             spdlog::trace("[{}:{}] Using adaptive expectation: {:.2f} kbps",
-                         print_addr(&conn->addr), port_no(&conn->addr), expected_kbits_per_sec);
+                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec);
         }
 
         // Dynamic bandwidth evaluation based on expected bandwidth
