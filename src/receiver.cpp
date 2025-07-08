@@ -516,12 +516,15 @@ void handle_srtla_data(time_t ts) {
   if (!g || !c)
     return;
 
+  // Check if connection was timed out before receiving this packet
+  bool was_timed_out = conn_timed_out(c, ts);
+  
   // Update the connection's use timestamp
   c->last_rcvd = ts;
   
   // For Problem 1: Set recovery_start when the connection is restored
   // When a connection comes back after a timeout, mark it for recovery
-  if (c->recovery_start == 0 && (c->last_rcvd == 1 || conn_timed_out(c, ts - 1))) {
+  if (c->recovery_start == 0 && was_timed_out) {
     c->recovery_start = ts;
     spdlog::info("[{}:{}] [Group: {}] Connection is recovering", 
                 print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()));
