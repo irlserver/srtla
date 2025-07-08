@@ -1053,10 +1053,22 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         // Reset NAK count
         conn->stats.nack_count = 0;
 
-        spdlog::debug("  [{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of expected), Loss: {:.2f}%, Error points: {}",
+        // For logging, use a more meaningful percentage calculation
+        // For poor connections, show percentage relative to median instead of minimum threshold
+        double log_percentage;
+        if (is_poor_connection) {
+            // Show how poor connections perform relative to the median (what good connections target)
+            log_percentage = (bandwidth_kbits_per_sec / median_kbits_per_sec) * 100;
+        } else {
+            // Show normal percentage for good connections
+            log_percentage = (bandwidth_kbits_per_sec / expected_kbits_per_sec) * 100;
+        }
+        
+        spdlog::debug("  [{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of {}), Loss: {:.2f}%, Error points: {}",
                 print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
-                bandwidth_kbits_per_sec, (bandwidth_kbits_per_sec / expected_kbits_per_sec) * 100, packet_loss_ratio * 100,
-                conn->stats.error_points);
+                bandwidth_kbits_per_sec, log_percentage, 
+                is_poor_connection ? "median (poor conn)" : "expected", 
+                packet_loss_ratio * 100, conn->stats.error_points);
     }
     
     // Adjust connection weights based on error points
