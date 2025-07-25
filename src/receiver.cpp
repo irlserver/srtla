@@ -21,6 +21,8 @@
 
 #include <arpa/inet.h>
 #include <endian.h>
+#include <sys/epoll.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
