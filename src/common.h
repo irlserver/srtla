@@ -48,8 +48,8 @@
 #define SRTLA_EXT_IRLTK_CIP_REQ_LEN 2
 #define SRTLA_EXT_IRLTK_CIP_RES_LEN (2 + sizeof(srtla_pkt_irltk_cip_res))
 
-#define SEND_BUF_SIZE (32 * 1024 * 1024)
-#define RECV_BUF_SIZE (32 * 1024 * 1024)
+#define SEND_BUF_SIZE (100 * 1024 * 1024)
+#define RECV_BUF_SIZE (100 * 1024 * 1024)
 
 typedef struct __attribute__((__packed__)) {
   uint16_t type;
