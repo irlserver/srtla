@@ -172,7 +172,7 @@ void group_find_by_addr(struct sockaddr_storage *addr, srtla_conn_group_ptr &rg,
 srtla_conn::srtla_conn(struct sockaddr_storage &_addr, time_t ts)
     : addr(_addr), last_rcvd(ts) {
   recv_log.fill(0);
-  
+
   // Initialize statistics
   stats.bytes_received = 0;
   stats.packets_received = 0;
@@ -186,7 +186,7 @@ srtla_conn::srtla_conn(struct sockaddr_storage &_addr, time_t ts)
   stats.last_ack_sent_time = 0;
   stats.ack_throttle_factor = 1.0;  // Start without throttling
   stats.nack_count = 0;
-  
+
   recovery_start = 0;
   connection_start = ts;
 }
@@ -374,10 +374,10 @@ int conn_reg(struct sockaddr_storage *addr, char *in_buf, time_t ts) {
     return -1;
   }
 
-  if (!already_registered)
+  if (!already_registered) {
     group->conns.push_back(conn);
-
-  group->write_socket_info_file();
+    group->write_socket_info_file();
+  }
 
   // If it all worked, mark this peer as the most recently active one
   group->last_addr = *addr;
@@ -443,12 +443,12 @@ void register_packet(srtla_conn_group_ptr group, srtla_conn_ptr conn,
 
   if (conn->recv_idx == RECV_ACK_INT) {
     bool should_send = true;
-    
+
     // Apply throttling based on time intervals using pre-calculated factor
     if (conn->stats.ack_throttle_factor < 1.0) {
       uint64_t min_interval = ACK_THROTTLE_INTERVAL / conn->stats.ack_throttle_factor;
-      
-      if (conn->stats.last_ack_sent_time > 0 && 
+
+      if (conn->stats.last_ack_sent_time > 0 &&
           current_ms < conn->stats.last_ack_sent_time + min_interval) {
         should_send = false;
         spdlog::trace("[{}:{}] [Group: {}] ACK throttled, next in {} ms (factor: {:.2f})",
@@ -457,7 +457,7 @@ void register_packet(srtla_conn_group_ptr group, srtla_conn_ptr conn,
                      conn->stats.ack_throttle_factor);
       }
     }
-    
+
     if (should_send) {
       srtla_ack_pkt ack;
       ack.type = htobe32(SRTLA_TYPE_ACK << 16);
@@ -465,7 +465,7 @@ void register_packet(srtla_conn_group_ptr group, srtla_conn_ptr conn,
 
       int ret = sendto(srtla_sock, &ack, sizeof(ack), 0, (struct sockaddr *)&conn->addr, addr_len);
       if (ret != sizeof(ack)) {
-        spdlog::error("[{}:{}] [Group: {}] Failed to send the SRTLA ACK", 
+        spdlog::error("[{}:{}] [Group: {}] Failed to send the SRTLA ACK",
             print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(group.get()));
       } else {
         // Update the timestamp of the last sent ACK
@@ -520,15 +520,15 @@ void handle_srtla_data(time_t ts) {
 
   // Check if connection was timed out before receiving this packet
   bool was_timed_out = conn_timed_out(c, ts);
-  
+
   // Update the connection's use timestamp
   c->last_rcvd = ts;
-  
+
   // For Problem 1: Set recovery_start when the connection is restored
   // When a connection comes back after a timeout, mark it for recovery
   if (c->recovery_start == 0 && was_timed_out) {
     c->recovery_start = ts;
-    spdlog::info("[{}:{}] [Group: {}] Connection is recovering", 
+    spdlog::info("[{}:{}] [Group: {}] Connection is recovering",
                 print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()));
   }
 
@@ -556,16 +556,16 @@ void handle_srtla_data(time_t ts) {
   // For Problem 2: Update connection statistics
   c->stats.bytes_received += n;
   c->stats.packets_received++;
-  
+
   // Check for NAK packets to track packet loss
   if (is_srt_nak(buf, n)) {
     c->stats.packets_lost++;
     c->stats.nack_count++;
-    
-    spdlog::debug("[{}:{}] [Group: {}] Received NAK packet. Total NAKs: {}, Total loss: {}", 
+
+    spdlog::debug("[{}:{}] [Group: {}] Received NAK packet. Total NAKs: {}, Total loss: {}",
                  print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()),
                  c->stats.nack_count, c->stats.packets_lost);
-    
+
     // For high NAK rates, re-evaluate connection quality immediately
     if (c->stats.nack_count > 5 && (g->last_quality_eval + 1) < ts) {
       g->evaluate_connection_quality(ts);
@@ -606,7 +606,7 @@ void handle_srtla_data(time_t ts) {
       remove_group(g);
       return;
     }
-  
+
     // Set g->srt_sock to non-blocking
     int flags = fcntl(sock, F_GETFL, 0);
     if (flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1) {
@@ -682,7 +682,7 @@ void cleanup_groups_connections(time_t ts) {
   for (std::vector<srtla_conn_group_ptr>::iterator git = conn_groups.begin();
        git != conn_groups.end();) {
     auto group = *git;
-    
+
     // For Problem 2: Evaluate connection quality
     group->evaluate_connection_quality(ts);
 
@@ -697,7 +697,7 @@ void cleanup_groups_connections(time_t ts) {
         // If the connection has received data since recovery started, it's recovering
         if (conn->last_rcvd > conn->recovery_start) {
           if ((ts - conn->recovery_start) > RECOVERY_CHANCE_PERIOD) {
-            spdlog::info("[{}:{}] [Group: {}] Connection recovery completed", 
+            spdlog::info("[{}:{}] [Group: {}] Connection recovery completed",
                        print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(group.get()));
             conn->recovery_start = 0;
           } else {
@@ -706,10 +706,10 @@ void cleanup_groups_connections(time_t ts) {
               send_keepalive(conn, ts);
             }
           }
-        } 
+        }
         // If the recovery phase takes too long without success, give up
         else if ((conn->recovery_start + RECOVERY_CHANCE_PERIOD) < ts) {
-          spdlog::info("[{}:{}] [Group: {}] Connection recovery failed", 
+          spdlog::info("[{}:{}] [Group: {}] Connection recovery failed",
                      print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(group.get()));
           conn->recovery_start = 0;
         }
@@ -857,17 +857,17 @@ int resolve_srt_addr(const char *host, const char *port) {
 void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
     if (conns.empty() || !load_balancing_enabled)
         return;
-        
+
     if (last_quality_eval + CONN_QUALITY_EVAL_PERIOD > current_time)
         return;
-        
+
     spdlog::debug("[Group: {}] Evaluating connection quality", static_cast<void *>(this));
-    
+
     // First pass - calculate total bandwidth and gather basic stats
     total_target_bandwidth = 0;
     uint64_t current_ms;
     get_ms(&current_ms);
-    
+
     std::vector<conn_bandwidth_info> bandwidth_info;
 
     // First pass - calculate raw bandwidth for each connection
@@ -877,26 +877,26 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         if (conn->stats.last_eval_time > 0) {
             time_diff_ms = current_ms - conn->stats.last_eval_time;
         }
-        
+
         if (time_diff_ms > 0) {
             // Calculate metrics from the last period
             uint64_t bytes_diff = conn->stats.bytes_received - conn->stats.last_bytes_received;
             uint64_t packets_diff = conn->stats.packets_received - conn->stats.last_packets_received;
             uint32_t lost_diff = conn->stats.packets_lost - conn->stats.last_packets_lost;
-            
+
             // Calculate bandwidth in bytes/sec
             double seconds = static_cast<double>(time_diff_ms) / 1000.0;
             double bandwidth_bytes_per_sec = bytes_diff / seconds;
 
             // Calculate bandwidth in kbits/sec for more intuitive evaluation
             double bandwidth_kbits_per_sec = (bandwidth_bytes_per_sec * 8.0) / 1000.0;
-            
+
             // Calculate packet loss ratio
             double packet_loss_ratio = 0;
             if (packets_diff > 0) {
                 packet_loss_ratio = static_cast<double>(lost_diff) / (packets_diff + lost_diff);
             }
-            
+
             // Store bandwidth info for this connection
             bandwidth_info.push_back({conn, bandwidth_kbits_per_sec, packet_loss_ratio});
 
@@ -919,45 +919,45 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
     double total_kbits_per_sec = (total_target_bandwidth * 8.0) / 1000.0;
     double max_kbits_per_sec = 0.0;
     double median_kbits_per_sec = 0.0;
-    
+
     // Find maximum bandwidth to use as reference for good connections
     std::vector<double> all_bandwidths;
     for (const auto &info : bandwidth_info) {
         all_bandwidths.push_back(info.bandwidth_kbits_per_sec);
         max_kbits_per_sec = std::max(max_kbits_per_sec, info.bandwidth_kbits_per_sec);
     }
-    
+
     // Calculate median only from connections that are reasonably good
     // Use threshold to exclude poor connections from median calculation
     if (!all_bandwidths.empty() && max_kbits_per_sec > 0) {
         double good_threshold = max_kbits_per_sec * GOOD_CONNECTION_THRESHOLD;
         std::vector<double> good_bandwidths;
-        
+
         for (const auto &bw : all_bandwidths) {
             if (bw >= good_threshold) {
                 good_bandwidths.push_back(bw);
             }
         }
-        
+
         // Calculate median from good connections only
         if (!good_bandwidths.empty()) {
             std::sort(good_bandwidths.begin(), good_bandwidths.end());
             size_t mid = good_bandwidths.size() / 2;
-            median_kbits_per_sec = good_bandwidths.size() % 2 == 0 ? 
-                (good_bandwidths[mid-1] + good_bandwidths[mid]) / 2.0 : 
+            median_kbits_per_sec = good_bandwidths.size() % 2 == 0 ?
+                (good_bandwidths[mid-1] + good_bandwidths[mid]) / 2.0 :
                 good_bandwidths[mid];
-                
+
             spdlog::trace("[Group: {}] Median from good connections (>= {:.2f} kbps): {:.2f} kbps ({} of {} connections)",
-                         static_cast<void *>(this), good_threshold, median_kbits_per_sec, 
+                         static_cast<void *>(this), good_threshold, median_kbits_per_sec,
                          good_bandwidths.size(), all_bandwidths.size());
         } else {
             // Fallback: use all connections if none meet the threshold
             std::sort(all_bandwidths.begin(), all_bandwidths.end());
             size_t mid = all_bandwidths.size() / 2;
-            median_kbits_per_sec = all_bandwidths.size() % 2 == 0 ? 
-                (all_bandwidths[mid-1] + all_bandwidths[mid]) / 2.0 : 
+            median_kbits_per_sec = all_bandwidths.size() % 2 == 0 ?
+                (all_bandwidths[mid-1] + all_bandwidths[mid]) / 2.0 :
                 all_bandwidths[mid];
-                
+
             spdlog::trace("[Group: {}] Using fallback median from all connections: {:.2f} kbps",
                          static_cast<void *>(this), median_kbits_per_sec);
         }
@@ -968,11 +968,11 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
     // The actual target bitrate is set by the client and unknown to us
     // For 1 conn: 1000 kbps, 2 conns: 500 kbps each, 3 conns: 333 kbps each, etc.
     double min_expected_kbits_per_sec = std::max(100.0, MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS / bandwidth_info.size());
-    
+
     // Log the total and expected bandwidth
     spdlog::debug("[Group: {}] Total bandwidth: {:.2f} kbits/s, Max: {:.2f} kbits/s, Median: {:.2f} kbits/s, "
                  "Min expected per conn: {:.2f} kbps",
-                 static_cast<void *>(this), total_kbits_per_sec, max_kbits_per_sec, median_kbits_per_sec, 
+                 static_cast<void *>(this), total_kbits_per_sec, max_kbits_per_sec, median_kbits_per_sec,
                  min_expected_kbits_per_sec);
 
     // Second pass - evaluate each connection against dynamic thresholds
@@ -1003,7 +1003,7 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         double expected_kbits_per_sec;
         // A connection is poor if it's significantly below the median target
         bool is_poor_connection = bandwidth_kbits_per_sec < median_kbits_per_sec * GOOD_CONNECTION_THRESHOLD;
-        
+
         // Determine expected bandwidth
         // Poor connections use minimum threshold, all others target median
         if (is_poor_connection) {
@@ -1011,17 +1011,17 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
         } else {
             expected_kbits_per_sec = median_kbits_per_sec;
         }
-        
+
         // Ensure we meet the minimum threshold
         expected_kbits_per_sec = std::max(expected_kbits_per_sec, min_expected_kbits_per_sec);
-        
+
         spdlog::trace("[{}:{}] Expected: {:.2f} kbps (bandwidth: {:.2f}, median: {:.2f}, poor: {})",
-                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec, 
+                     print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), expected_kbits_per_sec,
                      bandwidth_kbits_per_sec, median_kbits_per_sec, is_poor_connection);
 
         // Dynamic bandwidth evaluation based on expected bandwidth
         double performance_ratio = bandwidth_kbits_per_sec / expected_kbits_per_sec;
-        
+
         // Evaluate underperformance (applies to both modes)
         if (performance_ratio < 0.3) {
             // Significantly underperforming
@@ -1065,39 +1065,39 @@ void srtla_conn_group::evaluate_connection_quality(time_t current_time) {
             // Show normal percentage for good connections
             log_percentage = (bandwidth_kbits_per_sec / expected_kbits_per_sec) * 100;
         }
-        
+
         spdlog::debug("  [{}:{}] [Group: {}] Connection stats: BW: {:.2f} kbits/s ({:.2f}% of {}), Loss: {:.2f}%, Error points: {}",
                 print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), static_cast<void *>(this),
-                bandwidth_kbits_per_sec, log_percentage, 
-                is_poor_connection ? "median (poor conn)" : "expected", 
+                bandwidth_kbits_per_sec, log_percentage,
+                is_poor_connection ? "median (poor conn)" : "expected",
                 packet_loss_ratio * 100, conn->stats.error_points);
     }
-    
+
     // Adjust connection weights based on error points
     adjust_connection_weights(current_time);
-    
+
     last_quality_eval = current_time;
 }
 
 void srtla_conn_group::adjust_connection_weights(time_t current_time) {
     if (conns.empty())
         return;
-        
+
     bool any_change = false;
-    
+
     // Log current state before adjustment
-    spdlog::debug("[Group: {}] Evaluating weights and throttle factors for {} connections", 
+    spdlog::debug("[Group: {}] Evaluating weights and throttle factors for {} connections",
                  static_cast<void *>(this), conns.size());
-    
+
     // First pass: Calculate weights and find best performing connection
     uint8_t max_weight = 0;
     int active_conns = 0;
-    
+
     // Adjust weights based on error points
     for (auto &conn : conns) {
         uint8_t old_weight = conn->stats.weight_percent;
         uint8_t new_weight;
-        
+
         // Weight adjustment based on error points
         if (conn->stats.error_points >= 40) {
             new_weight = WEIGHT_CRITICAL;
@@ -1112,38 +1112,38 @@ void srtla_conn_group::adjust_connection_weights(time_t current_time) {
         } else {
             new_weight = WEIGHT_FULL;
         }
-        
+
         // Update weight if changed
         if (new_weight != old_weight) {
             conn->stats.weight_percent = new_weight;
             any_change = true;
         }
-        
+
         // Track maximum weight for throttle calculation
         if (!conn_timed_out(conn, current_time)) {
             max_weight = std::max(max_weight, conn->stats.weight_percent);
             active_conns++;
         }
     }
-    
-    spdlog::debug("[Group: {}] Active connections: {}, max_weight: {}, load_balancing_enabled: {}", 
+
+    spdlog::debug("[Group: {}] Active connections: {}, max_weight: {}, load_balancing_enabled: {}",
                  static_cast<void *>(this), active_conns, max_weight, load_balancing_enabled);
-    
+
     // Second pass: Calculate throttle factors based on weights
     if (load_balancing_enabled && active_conns > 1) {
         for (auto &conn : conns) {
             double old_throttle = conn->stats.ack_throttle_factor;
             double new_throttle;
-            
+
             // Calculate throttle based on both absolute and relative quality
             // This naturally handles all cases:
             // - Good connections (high absolute weight) get high throttle
             // - Best connections (relative = 1.0) are limited only by absolute quality
             // - Poor connections get limited even if they're the "best" available
-            
+
             double absolute_quality = static_cast<double>(conn->stats.weight_percent) / WEIGHT_FULL;
             double relative_quality = static_cast<double>(conn->stats.weight_percent) / max_weight;
-            
+
             // Use the lower of absolute or relative quality
             // This ensures poor connections never get full rate
             new_throttle = std::min(absolute_quality, relative_quality);
@@ -1154,19 +1154,19 @@ void srtla_conn_group::adjust_connection_weights(time_t current_time) {
             // This separation allows critical connections to be marked as 10% quality
             // while still receiving 20% ACKs for monitoring and recovery potential
             new_throttle = std::max(MIN_ACK_RATE, new_throttle);
-            
+
             spdlog::debug("[{}:{}] Throttle calculation: weight={}, max_weight={}, "
                          "absolute={:.2f}, relative={:.2f}, new_throttle={:.2f}, old_throttle={:.2f}",
-                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
+                         print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
                          conn->stats.weight_percent, max_weight,
                          absolute_quality, relative_quality, new_throttle, old_throttle);
-            
+
             // Update throttle factor only if changed
             if (std::abs(old_throttle - new_throttle) > 0.01) {
                 conn->stats.ack_throttle_factor = new_throttle;
                 any_change = true;
                 spdlog::debug("[{}:{}] Throttle factor updated: {:.2f} -> {:.2f}",
-                             print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr), 
+                             print_addr((struct sockaddr *)&conn->addr), port_no((struct sockaddr *)&conn->addr),
                              old_throttle, new_throttle);
             }
         }
@@ -1179,11 +1179,11 @@ void srtla_conn_group::adjust_connection_weights(time_t current_time) {
             }
         }
     }
-    
+
     // Log all changes in one comprehensive summary
     if (any_change) {
         spdlog::info("[Group: {}] Connection parameters adjusted:", static_cast<void *>(this));
-        
+
         for (auto &conn : conns) {
             spdlog::info("  [{}:{}] Weight: {}%, Throttle: {:.2f}, Error points: {}, "
                         "Bandwidth: {} bytes, Packets: {}, Loss: {}",
@@ -1204,7 +1204,7 @@ void srtla_conn_group::adjust_connection_weights(time_t current_time) {
 void send_keepalive(srtla_conn_ptr c, time_t ts) {
     uint16_t pkt = htobe16(SRTLA_TYPE_KEEPALIVE);
     int ret = sendto(srtla_sock, &pkt, sizeof(pkt), 0, (struct sockaddr *)&c->addr, addr_len);
-    
+
     if (ret != sizeof(pkt)) {
         spdlog::error("[{}:{}] Failed to send keepalive packet",
             print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr));
