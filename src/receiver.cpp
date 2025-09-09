@@ -237,7 +237,7 @@ void srtla_conn_group::write_socket_info_file() {
     f << print_addr((struct sockaddr *)&addr) << std::endl;
   f.close();
 
-  spdlog::debug("[Group: {}] Wrote SRTLA socket info file",
+  spdlog::info("[Group: {}] Wrote SRTLA socket info file",
                 static_cast<void *>(this));
 }
 
@@ -250,6 +250,9 @@ void srtla_conn_group::remove_socket_info_file() {
       std::string(SRT_SOCKET_INFO_PREFIX) + std::to_string(local_port);
 
   std::remove(file_name.c_str());
+
+    spdlog::info("[Group: {}] Removed SRTLA socket info file",
+                static_cast<void *>(this));
 }
 
 int register_group(struct sockaddr_storage *addr, char *in_buf, time_t ts) {
@@ -376,8 +379,8 @@ int conn_reg(struct sockaddr_storage *addr, char *in_buf, time_t ts) {
 
   if (!already_registered) {
     group->conns.push_back(conn);
-    group->write_socket_info_file();
   }
+  group->write_socket_info_file();
 
   // If it all worked, mark this peer as the most recently active one
   group->last_addr = *addr;
