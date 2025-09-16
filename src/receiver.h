@@ -79,7 +79,7 @@ struct srtla_conn {
     time_t last_rcvd = 0;
     int recv_idx = 0;
     std::array<uint32_t, RECV_ACK_INT> recv_log;
-    
+
     // Fields for connection quality evaluation
     connection_stats stats = {};
     time_t recovery_start = 0; // Time when the connection began to recover
@@ -95,7 +95,7 @@ struct srtla_conn_group {
     time_t created_at = 0;
     int srt_sock = -1;
     struct sockaddr_storage last_addr = {};
-    
+
     // Fields for load balancing
     uint64_t total_target_bandwidth = 0; // Total bandwidth
     time_t last_quality_eval = 0;        // Last time of quality evaluation
@@ -107,7 +107,7 @@ struct srtla_conn_group {
     std::vector<struct sockaddr_storage> get_client_addresses();
     void write_socket_info_file();
     void remove_socket_info_file();
-    
+
     // Methods for load balancing and connection evaluation
     void evaluate_connection_quality(time_t current_time);
     void adjust_connection_weights(time_t current_time);
