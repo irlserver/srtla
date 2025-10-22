@@ -41,6 +41,7 @@
 #include <fstream>
 #include <vector>
 #include <chrono>
+#include <thread>
 
 #include <argparse/argparse.hpp>
 
@@ -320,9 +321,22 @@ void remove_group(srtla_conn_group_ptr group) {
   group.reset();
 }
 
+static inline srtla_conn_group_ptr wait_group_by_id_yield(const uint8_t* id,
+                                                          int max_ms = 200) {
+  using clock = std::chrono::steady_clock;
+  const auto deadline = clock::now() + std::chrono::milliseconds(max_ms);
+
+  while (clock::now() < deadline) {
+    if (auto g = group_find_by_id((char*)id)) return g;
+    // Give other work a chance; non-blocking (no sleep).
+    std::this_thread::yield();
+  }
+  return nullptr;
+}
+
 int conn_reg(struct sockaddr_storage *addr, char *in_buf, time_t ts) {
   char *id = in_buf + 2;
-  srtla_conn_group_ptr group = group_find_by_id(id);
+  srtla_conn_group_ptr group = wait_group_by_id_yield((const uint8_t*)id);
   if (!group) {
     uint16_t header = htobe16(SRTLA_TYPE_REG_NGP);
     sendto(srtla_sock, &header, sizeof(header), 0, (const sockaddr *)addr,
