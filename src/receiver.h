@@ -33,8 +33,8 @@ extern "C" {
 #define MAX_GROUPS          200
 
 #define CLEANUP_PERIOD 3
-#define GROUP_TIMEOUT  10
-#define CONN_TIMEOUT   10
+#define GROUP_TIMEOUT  4
+#define CONN_TIMEOUT   4
 
 // Adjustment for Problem 1: Shorter keepalive period for recovery
 #define KEEPALIVE_PERIOD 1
