@@ -125,9 +125,9 @@ In the original implementation, load was unevenly distributed across available c
 
 - Introduces a monitoring and evaluation system for connection quality
 - Checks connection quality every 5 seconds based on:
-  - Bandwidth (bytes/s)
-  - Round-Trip Time (ms)
+  - Bandwidth (kbits/s) and performance ratio (actual vs expected bandwidth)
   - Packet loss rate
+  - Connection performance relative to median bandwidth
 - Assigns error points to each connection based on these metrics
 - Calculates a quality weight for each connection (10% to 100%)
 - Controls ACK packet frequency based on connection quality
@@ -152,13 +152,17 @@ The central innovation of this solution is ACK throttling for load distribution.
 
 Connection quality is assessed by measuring and analyzing:
 
-- **Bandwidth**: Low bandwidth leads to more error points
+- **Bandwidth Performance**: The system calculates a performance ratio by comparing actual bandwidth to expected bandwidth. Poor performance relative to expectations leads to more error points
 - **Packet Loss**: Higher loss rates lead to more error points
+- **Dynamic Bandwidth Evaluation**: Connections are evaluated against either median bandwidth (for good connections) or minimum threshold (for poor connections)
+- **Grace Period**: New connections receive a 10-second grace period before penalties are applied
 
 The weight levels are:
 
 - 100% (WEIGHT_FULL): Optimal connection
+- 85% (WEIGHT_EXCELLENT): Excellent connection
 - 70% (WEIGHT_DEGRADED): Slightly impaired connection
+- 55% (WEIGHT_FAIR): Fair connection
 - 40% (WEIGHT_POOR): Severely impaired connection
 - 10% (WEIGHT_CRITICAL): Critically impaired connection
 
@@ -179,13 +183,17 @@ The following parameters can be adjusted to optimize behavior:
 - `RECOVERY_CHANCE_PERIOD`: Period during which a connection can attempt to recover (5 seconds)
 - `CONN_QUALITY_EVAL_PERIOD`: Interval for evaluating connection quality (5 seconds)
 - `ACK_THROTTLE_INTERVAL`: Base interval for ACK throttling (100ms)
-- Various weight levels (`WEIGHT_FULL`, `WEIGHT_DEGRADED`, `WEIGHT_POOR`, `WEIGHT_CRITICAL`)
+- `MIN_ACK_RATE`: Minimum ACK rate to keep connections alive (20%)
+- `MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS`: Minimum total bandwidth for acceptable streaming quality (1000 kbps)
+- `GOOD_CONNECTION_THRESHOLD`: Threshold for considering a connection "good" (50% of max bandwidth)
+- `CONNECTION_GRACE_PERIOD`: Grace period in seconds before applying penalties (10 seconds)
+- Various weight levels (`WEIGHT_FULL`, `WEIGHT_EXCELLENT`, `WEIGHT_DEGRADED`, `WEIGHT_FAIR`, `WEIGHT_POOR`, `WEIGHT_CRITICAL`)
 
 ### Limitations
 
-- The RTT calculation is simplified and could be improved in future versions
 - The error point thresholds are static and could be dynamically adjusted to better adapt to different network situations
 - The throttling might be less effective with very short ACK intervals
+- Performance ratio calculations are based on bandwidth expectations that may need tuning for different network environments
 
 ## SRT Configuration Recommendations
 
