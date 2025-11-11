@@ -623,7 +623,7 @@ void handle_srtla_data(time_t ts) {
     uint64_t h = hash_nak_payload(reinterpret_cast<const uint8_t*>(buf), n, 128);
     uint64_t t = now_ms();
     if (!accept_nak_hash(g->nak_seen_hash, h, t)) {
-      spdlog::debug("[{}:{}] [Group: {}] Duplicate NAK packet suppressed",
+      spdlog::info("[{}:{}] [Group: {}] Duplicate NAK packet suppressed",
                    print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()));
       return;
     }
@@ -631,7 +631,7 @@ void handle_srtla_data(time_t ts) {
     c->stats.packets_lost++;
     c->stats.nack_count++;
 
-    spdlog::debug("[{}:{}] [Group: {}] Received NAK packet. Total NAKs: {}, Total loss: {}",
+    spdlog::info("[{}:{}] [Group: {}] Received NAK packet. Total NAKs: {}, Total loss: {}",
                  print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()),
                  c->stats.nack_count, c->stats.packets_lost);
 
