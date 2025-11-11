@@ -24,6 +24,7 @@
 #include <memory>
 
 #include <spdlog/spdlog.h>
+#include <unordered_map>
 
 extern "C" {
 #include "common.h"
@@ -58,6 +59,14 @@ extern "C" {
 #define RECV_ACK_INT 10
 
 #define SRT_SOCKET_INFO_PREFIX "/tmp/srtla-group-"
+
+// NAK dedupe constants
+static constexpr uint64_t SUPPRESS_MS = 100;
+static constexpr int      MAX_REPEATS = 1;
+struct NakHashEntry {
+  uint64_t ts;
+  int repeats;
+};
 
 struct connection_stats {
     uint64_t bytes_received;         // Received bytes
@@ -100,6 +109,9 @@ struct srtla_conn_group {
     uint64_t total_target_bandwidth = 0; // Total bandwidth
     time_t last_quality_eval = 0;        // Last time of quality evaluation
     bool load_balancing_enabled = true;  // Load balancing enabled
+
+    // nak dedupe cache
+    std::unordered_map<uint64_t, NakHashEntry> nak_seen_hash;
 
     srtla_conn_group(char *client_id, time_t ts);
     ~srtla_conn_group();

@@ -43,6 +43,9 @@
 #include <chrono>
 #include <thread>
 
+#include <cstdint>
+#include <unordered_map>
+
 #include <argparse/argparse.hpp>
 
 #include "receiver.h"
@@ -113,6 +116,46 @@ inline void srtla_send_reg_err(struct sockaddr_storage *addr) {
   sendto(srtla_sock, &header, sizeof(header), 0, (struct sockaddr *)addr,
          addr_len);
 }
+
+
+/*
+NAK deduplication helpers
+*/
+static inline uint64_t now_ms() {
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+static inline uint64_t fnv1a64(const uint8_t* d, size_t n, uint64_t seed = 1469598103934665603ull) {
+  uint64_t h = seed;
+  for (size_t i = 0; i < n; ++i) {
+    h ^= (uint64_t)d[i];
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+
+// Hash only the NAK loss list (skip 16-byte control header).
+static inline uint64_t hash_nak_payload(const uint8_t* buf, int len, int prefix_bytes = -1) {
+  if (len <= 16) return 0;
+  const uint8_t* p = buf + 16;
+  size_t n = (size_t)(len - 16);
+  if (prefix_bytes >= 0 && (size_t)prefix_bytes < n) n = (size_t)prefix_bytes;
+  return fnv1a64(p, n);
+}
+
+static inline bool accept_nak_hash(std::unordered_map<uint64_t, NakHashEntry>& cache,
+                                   uint64_t h, uint64_t now) {
+  auto it = cache.find(h);
+  if (it == cache.end()) { cache.emplace(h, NakHashEntry{now, 0}); return true; }
+  if (now - it->second.ts < SUPPRESS_MS) return false;
+  if (it->second.repeats >= MAX_REPEATS) return false;
+  it->second.ts = now;
+  it->second.repeats++;
+  return true;
+}
+
+
 
 /*
 Connection and group management functions
@@ -576,6 +619,15 @@ void handle_srtla_data(time_t ts) {
 
   // Check for NAK packets to track packet loss
   if (is_srt_nak(buf, n)) {
+
+    uint64_t h = hash_nak_payload(reinterpret_cast<const uint8_t*>(buf), n, 128);
+    uint64_t t = now_ms();
+    if (!accept_nak_hash(g->nak_seen_hash, h, t)) {
+      spdlog::debug("[{}:{}] [Group: {}] Duplicate NAK packet suppressed",
+                   print_addr((struct sockaddr *)&c->addr), port_no((struct sockaddr *)&c->addr), static_cast<void *>(g.get()));
+      return;
+    }
+
     c->stats.packets_lost++;
     c->stats.nack_count++;
 
