@@ -19,6 +19,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <stdint.h>
+#include <time.h>
+
 #define MTU 1500
 
 #define SRT_TYPE_HANDSHAKE   0x8000
@@ -35,6 +38,21 @@
 #define SRTLA_TYPE_REG_NGP   0x9211
 #define SRTLA_TYPE_REG_NAK   0x9212
 
+// irlserver SRTLA Protocol Extensions (0x9F00-0x9FFF range)
+// Extension negotiation packets
+#define SRTLA_EXT_HELLO         0x9FF0
+#define SRTLA_EXT_ACK           0x9FF1
+
+// Extension capability flags (bitmask)
+#define SRTLA_EXT_CAP_CONN_INFO 0x00000001
+
+// Connection info telemetry packet
+#define SRTLA_EXT_CONN_INFO     0x9F00
+
+// Extension protocol version
+#define SRTLA_EXT_VERSION       0x0001
+
+// Legacy IRLToolkit extensions (kept for compatibility)
 #define SRTLA_EXT_IRLTK_CIP_REQ 0xA000
 #define SRTLA_EXT_IRLTK_CIP_RES 0xA001
 
@@ -45,6 +63,12 @@
 #define SRTLA_TYPE_REG2_LEN  (2 + (SRTLA_ID_LEN))
 #define SRTLA_TYPE_REG3_LEN  2
 
+// Extension packet lengths
+#define SRTLA_EXT_HELLO_LEN     10
+#define SRTLA_EXT_ACK_LEN       10
+#define SRTLA_EXT_CONN_INFO_LEN 32
+
+// Legacy extension lengths
 #define SRTLA_EXT_IRLTK_CIP_REQ_LEN 2
 #define SRTLA_EXT_IRLTK_CIP_RES_LEN (2 + sizeof(srtla_pkt_irltk_cip_res))
 
@@ -95,3 +119,8 @@ int is_srtla_keepalive(void *pkt, int len);
 int is_srtla_reg1(void *pkt, int len);
 int is_srtla_reg2(void *pkt, int len);
 int is_srtla_reg3(void *pkt, int len);
+
+// Extension packet detection functions
+int is_srtla_ext_hello(void *pkt, int len);
+int is_srtla_ext_ack(void *pkt, int len);
+int is_srtla_ext_conn_info(void *pkt, int len);

@@ -571,6 +571,85 @@ void handle_srtla_data(time_t ts) {
     return;
   }
 
+  // Handle irlserver SRTLA extension packets (EXT_HELLO)
+  if (is_srtla_ext_hello(buf, n)) {
+    // Find the connection
+    srtla_conn_group_ptr ext_g = nullptr;
+    srtla_conn_ptr ext_c = nullptr;
+    group_find_by_addr(&srtla_addr, ext_g, ext_c);
+    
+    if (ext_g && ext_c) {
+      // Parse sender's capabilities
+      uint16_t ext_version = be16toh(*((uint16_t*)(buf + 2)));
+      uint32_t sender_caps = be32toh(*((uint32_t*)(buf + 4)));
+      
+      // Store sender's capabilities
+      ext_c->sender_capabilities = sender_caps;
+      
+      // Build EXT_ACK with our capabilities
+      // Receiver supports connection info telemetry
+      uint32_t our_caps = SRTLA_EXT_CAP_CONN_INFO;
+      
+      char ack_buf[SRTLA_EXT_ACK_LEN] = {};
+      *((uint16_t*)ack_buf) = htobe16(SRTLA_EXT_ACK);
+      *((uint16_t*)(ack_buf + 2)) = htobe16(SRTLA_EXT_VERSION);
+      *((uint32_t*)(ack_buf + 4)) = htobe32(our_caps);
+      *((uint16_t*)(ack_buf + 8)) = 0;  // Reserved
+      
+      // Send EXT_ACK
+      int ret = sendto(srtla_sock, ack_buf, SRTLA_EXT_ACK_LEN, 0,
+                       (struct sockaddr*)&srtla_addr, addr_len);
+      if (ret == SRTLA_EXT_ACK_LEN) {
+        ext_c->extensions_negotiated = true;
+        spdlog::info("[{}:{}] [Group: {}] Extension negotiation complete "
+                     "(sender=0x{:08X}, receiver=0x{:08X}, version=0x{:04X})",
+                     print_addr((struct sockaddr*)&srtla_addr),
+                     port_no((struct sockaddr*)&srtla_addr),
+                     static_cast<void*>(ext_g.get()),
+                     sender_caps, our_caps, ext_version);
+      } else {
+        spdlog::error("[{}:{}] [Group: {}] Failed to send EXT_ACK",
+                      print_addr((struct sockaddr*)&srtla_addr),
+                      port_no((struct sockaddr*)&srtla_addr),
+                      static_cast<void*>(ext_g.get()));
+      }
+    }
+    return;
+  }
+
+  // Handle irlserver SRTLA extension packets (CONN_INFO)
+  if (is_srtla_ext_conn_info(buf, n)) {
+    // Find the connection
+    srtla_conn_group_ptr info_g = nullptr;
+    srtla_conn_ptr info_c = nullptr;
+    group_find_by_addr(&srtla_addr, info_g, info_c);
+    
+    if (info_g && info_c && info_c->extensions_negotiated) {
+      // Parse connection info
+      uint16_t version = be16toh(*((uint16_t*)(buf + 2)));
+      uint32_t conn_id = be32toh(*((uint32_t*)(buf + 4)));
+      int32_t window = (int32_t)be32toh(*((uint32_t*)(buf + 8)));
+      int32_t in_flight = (int32_t)be32toh(*((uint32_t*)(buf + 12)));
+      uint64_t rtt_us = be64toh(*((uint64_t*)(buf + 16)));
+      uint32_t nak_count = be32toh(*((uint32_t*)(buf + 24)));
+      uint32_t bitrate_bps = be32toh(*((uint32_t*)(buf + 28)));
+      
+      // Log the telemetry
+      spdlog::info("[{}:{}] [Group: {}] Connection telemetry: "
+                   "conn_id={}, window={}, in_flight={}, rtt={}μs, naks={}, bitrate={} KB/s",
+                   print_addr((struct sockaddr*)&srtla_addr),
+                   port_no((struct sockaddr*)&srtla_addr),
+                   static_cast<void*>(info_g.get()),
+                   conn_id, window, in_flight, rtt_us, nak_count, bitrate_bps / 1000);
+    } else if (info_g && info_c && !info_c->extensions_negotiated) {
+      spdlog::debug("[{}:{}] [Group: {}] Received CONN_INFO before extension negotiation, ignoring",
+                    print_addr((struct sockaddr*)&srtla_addr),
+                    port_no((struct sockaddr*)&srtla_addr),
+                    static_cast<void*>(info_g.get()));
+    }
+    return;
+  }
+
   // Check that the peer is a member of a connection group, discard otherwise
   srtla_conn_group_ptr g;
   srtla_conn_ptr c;

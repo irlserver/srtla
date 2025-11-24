@@ -113,3 +113,18 @@ int is_srtla_reg3(void *pkt, int len) {
   if (len != SRTLA_TYPE_REG3_LEN) return 0;
   return get_srt_type(pkt, len) == SRTLA_TYPE_REG3;
 }
+
+int is_srtla_ext_hello(void *pkt, int len) {
+  if (len != SRTLA_EXT_HELLO_LEN) return 0;
+  return get_srt_type(pkt, len) == SRTLA_EXT_HELLO;
+}
+
+int is_srtla_ext_ack(void *pkt, int len) {
+  if (len != SRTLA_EXT_ACK_LEN) return 0;
+  return get_srt_type(pkt, len) == SRTLA_EXT_ACK;
+}
+
+int is_srtla_ext_conn_info(void *pkt, int len) {
+  if (len != SRTLA_EXT_CONN_INFO_LEN) return 0;
+  return get_srt_type(pkt, len) == SRTLA_EXT_CONN_INFO;
+}

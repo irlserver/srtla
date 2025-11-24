@@ -94,6 +94,10 @@ struct srtla_conn {
     time_t recovery_start = 0; // Time when the connection began to recover
     time_t connection_start = 0; // Time when the connection was established
 
+    // irlserver SRTLA Protocol Extensions state
+    bool extensions_negotiated = false;   // Whether EXT_ACK was received
+    uint32_t sender_capabilities = 0;     // Sender's capability bitmask from EXT_HELLO
+
     srtla_conn(struct sockaddr_storage &_addr, time_t ts);
 };
 typedef std::shared_ptr<srtla_conn> srtla_conn_ptr;
