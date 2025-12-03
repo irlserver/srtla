@@ -639,6 +639,19 @@ void handle_srtla_data(time_t ts) {
     if (info_g && info_c && info_c->extensions_negotiated) {
       // Parse connection info
       uint16_t version = be16toh(*((uint16_t*)(buf + 2)));
+      
+      // Validate version compatibility
+      if (version != SRTLA_EXT_VERSION) {
+        spdlog::warn("[{}:{}] [Group: {}] CONN_INFO version mismatch: "
+                     "received version=0x{:04X}, expected version=0x{:04X}. "
+                     "Ignoring CONN_INFO packet.",
+                     print_addr((struct sockaddr*)&srtla_addr),
+                     port_no((struct sockaddr*)&srtla_addr),
+                     static_cast<void*>(info_g.get()),
+                     version, SRTLA_EXT_VERSION);
+        return;
+      }
+      
       uint32_t conn_id = be32toh(*((uint32_t*)(buf + 4)));
       int32_t window = (int32_t)be32toh(*((uint32_t*)(buf + 8)));
       int32_t in_flight = (int32_t)be32toh(*((uint32_t*)(buf + 12)));
