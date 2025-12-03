@@ -579,9 +579,21 @@ void handle_srtla_data(time_t ts) {
     group_find_by_addr(&srtla_addr, ext_g, ext_c);
     
     if (ext_g && ext_c) {
-      // Parse sender's capabilities
+      // Parse sender's version and capabilities
       uint16_t ext_version = be16toh(*((uint16_t*)(buf + 2)));
       uint32_t sender_caps = be32toh(*((uint32_t*)(buf + 4)));
+      
+      // Validate version compatibility
+      if (ext_version != SRTLA_EXT_VERSION) {
+        spdlog::error("[{}:{}] [Group: {}] Extension version mismatch: "
+                      "received version=0x{:04X}, expected version=0x{:04X}. "
+                      "Ignoring EXT_HELLO packet.",
+                      print_addr((struct sockaddr*)&srtla_addr),
+                      port_no((struct sockaddr*)&srtla_addr),
+                      static_cast<void*>(ext_g.get()),
+                      ext_version, SRTLA_EXT_VERSION);
+        return;
+      }
       
       // Store sender's capabilities
       ext_c->sender_capabilities = sender_caps;
