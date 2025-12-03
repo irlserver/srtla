@@ -644,15 +644,15 @@ void handle_srtla_data(time_t ts) {
       int32_t in_flight = (int32_t)be32toh(*((uint32_t*)(buf + 12)));
       uint64_t rtt_us = be64toh(*((uint64_t*)(buf + 16)));
       uint32_t nak_count = be32toh(*((uint32_t*)(buf + 24)));
-      uint32_t bitrate_bps = be32toh(*((uint32_t*)(buf + 28)));
+      uint32_t bitrate_bytes_per_sec = be32toh(*((uint32_t*)(buf + 28)));
       
-      // Log the telemetry
+      // Log the telemetry (bitrate converted from bytes/sec to KB/s)
       spdlog::info("[{}:{}] [Group: {}] Connection telemetry: "
                    "conn_id={}, window={}, in_flight={}, rtt={}μs, naks={}, bitrate={} KB/s",
                    print_addr((struct sockaddr*)&srtla_addr),
                    port_no((struct sockaddr*)&srtla_addr),
                    static_cast<void*>(info_g.get()),
-                   conn_id, window, in_flight, rtt_us, nak_count, bitrate_bps / 1000);
+                   conn_id, window, in_flight, rtt_us, nak_count, bitrate_bytes_per_sec / 1000);
     } else if (info_g && info_c && !info_c->extensions_negotiated) {
       spdlog::debug("[{}:{}] [Group: {}] Received CONN_INFO before extension negotiation, ignoring",
                     print_addr((struct sockaddr*)&srtla_addr),
