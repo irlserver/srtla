@@ -3,7 +3,17 @@ project(srtla_rec VERSION 1.0.0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/Modules")
 
-find_package(spdlog REQUIRED)
+include(FetchContent)
+
+# Fetch and build spdlog statically
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/irlserver/spdlog.git
+    GIT_TAG 1.9.2
+)
+set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "Build spdlog as shared library")
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "Build spdlog examples")
+FetchContent_MakeAvailable(spdlog)
 
 add_library(common_obj OBJECT
     src/common.c
@@ -29,7 +39,6 @@ target_include_directories(srtla_rec PRIVATE
 target_link_libraries(srtla_rec PRIVATE
     common_obj
     spdlog::spdlog
-    -Wl,-rpath,/usr/local/lib
 )
 target_compile_features(srtla_rec PRIVATE cxx_std_17)
 #target_compile_options(srtla_rec PRIVATE -Wall -Wextra)
@@ -44,7 +53,6 @@ target_include_directories(srtla_send PRIVATE
 target_link_libraries(srtla_send PRIVATE
     common_obj
     spdlog::spdlog
-    -Wl,-rpath,/usr/local/lib
 )
 target_compile_features(srtla_send PRIVATE cxx_std_17)
 #target_compile_options(srtla_send PRIVATE -Wall -Wextra)
