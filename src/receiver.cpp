@@ -649,7 +649,7 @@ void handle_srtla_data(time_t ts) {
 
   // Open a connection to the SRT server for the group
   if (g->srt_sock < 0) {
-    int sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+    int sock = socket(srt_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (sock < 0) {
       spdlog::error("[Group: {}] Failed to create an SRT socket",
                     static_cast<void *>(g.get()));
@@ -692,8 +692,7 @@ void handle_srtla_data(time_t ts) {
       ret = connect(sock, (struct sockaddr *)&srt_addr,
                     sizeof(struct sockaddr_in6));
     } else {
-      spdlog::error("[Group: {}] Invalid address family for SRT server",
-                    static_cast<void *>(g.get()));
+      spdlog::error("[Group: {}] Failed to connect to SRT server: {}", static_cast<void *>(g.get()), strerror(errno));
       remove_group(g);
       return;
     }

@@ -7,6 +7,10 @@
 #include "../receiver_config.h"
 #include "../utils/network_utils.h"
 
+
+extern "C" {
+#include "../common.h"
+}
 namespace srtla::connection {
 
 using srtla::utils::NetworkUtils;
@@ -118,8 +122,6 @@ void ConnectionRegistry::cleanup_inactive(time_t current_time,
                                      port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
                                      static_cast<void *>(group.get()));
                         conn->set_recovery_start(0);
-                    } else if (keepalive_cb && (conn->last_received() + KEEPALIVE_PERIOD) < current_time) {
-                        keepalive_cb(conn, current_time);
                     }
                 } else if ((conn->recovery_start() + RECOVERY_CHANCE_PERIOD) < current_time) {
                     spdlog::info("[{}:{}] [Group: {}] Connection recovery failed",
@@ -138,8 +140,7 @@ void ConnectionRegistry::cleanup_inactive(time_t current_time,
                              port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
                              static_cast<void *>(group.get()));
             } else {
-                if (conn->recovery_start() > 0 && keepalive_cb &&
-                    (conn->last_received() + KEEPALIVE_PERIOD) < current_time) {
+                  if (keepalive_cb && (conn->last_received() + KEEPALIVE_PERIOD) < current_time) {
                     keepalive_cb(conn, current_time);
                 }
                 ++conn_it;

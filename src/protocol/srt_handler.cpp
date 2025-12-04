@@ -76,7 +76,7 @@ bool SRTHandler::ensure_group_socket(connection::ConnectionGroupPtr group) {
         return true;
     }
 
-    int sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+    int sock = socket(srt_addr_.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if (sock < 0) {
         spdlog::error("[Group: {}] Failed to create an SRT socket", static_cast<void *>(group.get()));
         remove_group(group);
@@ -115,7 +115,8 @@ bool SRTHandler::ensure_group_socket(connection::ConnectionGroupPtr group) {
     }
 
     if (ret != 0) {
-        spdlog::error("[Group: {}] Invalid address family for SRT server", static_cast<void *>(group.get()));
+        
+        spdlog::error("[Group: {}] Failed to connect to SRT server: {}", static_cast<void *>(group.get()), strerror(errno));
         close(sock);
         remove_group(group);
         return false;
