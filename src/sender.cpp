@@ -17,22 +17,22 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#include <unistd.h>
-#include <time.h>
-#include <signal.h>
-#include <netdb.h>
-#include <fstream>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <assert.h>
+#include <fstream>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
 
-#include <argparse/argparse.hpp>
 #include "sender.h"
+#include <argparse/argparse.hpp>
 
 #define PKT_LOG_SZ 256
 #define CONN_TIMEOUT 4
@@ -700,7 +700,8 @@ inline std::vector<char> get_random_bytes(size_t size) {
   f.read(ret.data(), size);
   if (f.gcount() != static_cast<std::streamsize>(size) || f.fail()) {
     f.close();
-    throw std::runtime_error("Failed to read sufficient random bytes from /dev/urandom");
+    throw std::runtime_error(
+        "Failed to read sufficient random bytes from /dev/urandom");
   }
   f.close();
 
@@ -751,10 +752,10 @@ int main(int argc, char **argv) {
 
   int port = args.get<uint16_t>("listen_port");
 
-// Read a random connection group id for this session
+  // Read a random connection group id for this session
   auto random_bytes = get_random_bytes(SRTLA_ID_LEN / 2);
   std::memcpy(srtla_id, random_bytes.data(), SRTLA_ID_LEN / 2);
-  
+
   FD_ZERO(&active_fds);
 
   listen_addr.sin_family = AF_INET;

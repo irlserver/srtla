@@ -27,34 +27,32 @@
 
 #define MTU 1500
 
-#define SRT_TYPE_HANDSHAKE   0x8000
-#define SRT_TYPE_ACK         0x8002
-#define SRT_TYPE_NAK         0x8003
-#define SRT_TYPE_SHUTDOWN    0x8005
+#define SRT_TYPE_HANDSHAKE 0x8000
+#define SRT_TYPE_ACK 0x8002
+#define SRT_TYPE_NAK 0x8003
+#define SRT_TYPE_SHUTDOWN 0x8005
 
 #define SRTLA_TYPE_KEEPALIVE 0x9000
-#define SRTLA_TYPE_ACK       0x9100
-#define SRTLA_TYPE_REG1      0x9200
-#define SRTLA_TYPE_REG2      0x9201
-#define SRTLA_TYPE_REG3      0x9202
-#define SRTLA_TYPE_REG_ERR   0x9210
-#define SRTLA_TYPE_REG_NGP   0x9211
-#define SRTLA_TYPE_REG_NAK   0x9212
+#define SRTLA_TYPE_ACK 0x9100
+#define SRTLA_TYPE_REG1 0x9200
+#define SRTLA_TYPE_REG2 0x9201
+#define SRTLA_TYPE_REG3 0x9202
+#define SRTLA_TYPE_REG_ERR 0x9210
+#define SRTLA_TYPE_REG_NGP 0x9211
+#define SRTLA_TYPE_REG_NAK 0x9212
 
 // Extended KEEPALIVE with Connection Info
-#define SRTLA_KEEPALIVE_MAGIC          0xC01F
-#define SRTLA_KEEPALIVE_STD_LEN        10
-#define SRTLA_KEEPALIVE_EXT_LEN        42
-#define SRTLA_KEEPALIVE_EXT_VERSION    0x0001
+#define SRTLA_KEEPALIVE_MAGIC 0xC01F
+#define SRTLA_KEEPALIVE_STD_LEN 10
+#define SRTLA_KEEPALIVE_EXT_LEN 42
+#define SRTLA_KEEPALIVE_EXT_VERSION 0x0001
 
-#define SRT_MIN_LEN          16
+#define SRT_MIN_LEN 16
 
-#define SRTLA_ID_LEN         256
-#define SRTLA_TYPE_REG1_LEN  (2 + (SRTLA_ID_LEN))
-#define SRTLA_TYPE_REG2_LEN  (2 + (SRTLA_ID_LEN))
-#define SRTLA_TYPE_REG3_LEN  2
-
-
+#define SRTLA_ID_LEN 256
+#define SRTLA_TYPE_REG1_LEN (2 + (SRTLA_ID_LEN))
+#define SRTLA_TYPE_REG2_LEN (2 + (SRTLA_ID_LEN))
+#define SRTLA_TYPE_REG3_LEN 2
 
 #define SEND_BUF_SIZE (100 * 1024 * 1024)
 #define RECV_BUF_SIZE (100 * 1024 * 1024)
@@ -78,7 +76,7 @@ typedef struct __attribute__((__packed__)) {
   uint32_t handshake_type;
   uint32_t source_id;
   uint32_t syn_cookie;
-  char     peer_ip[16];
+  char peer_ip[16];
 } srt_handshake_t;
 
 // Extended KEEPALIVE Connection Info structure
@@ -110,4 +108,5 @@ int is_srtla_reg2(void *pkt, int len);
 int is_srtla_reg3(void *pkt, int len);
 
 // Extended KEEPALIVE parsing function
-int parse_keepalive_conn_info(const uint8_t *buf, int len, connection_info_t *info);
+int parse_keepalive_conn_info(const uint8_t *buf, int len,
+                              connection_info_t *info);
