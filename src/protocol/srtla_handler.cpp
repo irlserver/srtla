@@ -332,6 +332,33 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
                                     const struct sockaddr_storage *addr,
                                     const char *buffer,
                                     int length) {
+    // Try to parse extended keepalive with connection info
+    connection_info_t info;
+    if (parse_keepalive_conn_info(reinterpret_cast<const uint8_t *>(buffer), length, &info)) {
+        // Copy values to avoid packed field reference issues
+        uint32_t conn_id = info.conn_id;
+        int32_t window = info.window;
+        int32_t in_flight = info.in_flight;
+        uint64_t rtt_us = info.rtt_us;
+        uint32_t nak_count = info.nak_count;
+        uint32_t bitrate_kbps = info.bitrate_bytes_per_sec / 1000;
+        
+        spdlog::info(
+            "[{}:{}] [Group: {}] Uplink telemetry: conn_id={}, window={}, in_flight={}, "
+            "rtt={}us, naks={}, bitrate={}KB/s",
+            print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+            port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+            static_cast<void *>(group.get()),
+            conn_id,
+            window,
+            in_flight,
+            rtt_us,
+            nak_count,
+            bitrate_kbps
+        );
+    }
+    
+    // Echo the keepalive back to the sender
     int ret = sendto(srtla_socket_, buffer, length, 0,
                      reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
     if (ret != length) {
@@ -340,7 +367,6 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
                       port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
                       static_cast<void *>(group.get()));
     }
-}
 }
 
 } // namespace srtla::protocol

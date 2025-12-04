@@ -113,3 +113,31 @@ int is_srtla_reg3(void *pkt, int len) {
   if (len != SRTLA_TYPE_REG3_LEN) return 0;
   return get_srt_type(pkt, len) == SRTLA_TYPE_REG3;
 }
+
+int parse_keepalive_conn_info(const uint8_t *buf, int len, connection_info_t *info) {
+  if (len < SRTLA_KEEPALIVE_EXT_LEN) return 0;
+  
+  uint16_t packet_type = (buf[0] << 8) | buf[1];
+  if (packet_type != SRTLA_TYPE_KEEPALIVE) return 0;
+  
+  // Check magic number at bytes 10-11
+  uint16_t magic = (buf[10] << 8) | buf[11];
+  if (magic != SRTLA_KEEPALIVE_MAGIC) return 0;
+  
+  // Check version at bytes 12-13
+  uint16_t version = (buf[12] << 8) | buf[13];
+  if (version != SRTLA_KEEPALIVE_EXT_VERSION) return 0;
+  
+  // Parse connection info (all big-endian)
+  info->conn_id = (buf[14] << 24) | (buf[15] << 16) | (buf[16] << 8) | buf[17];
+  info->window = (int32_t)((buf[18] << 24) | (buf[19] << 16) | (buf[20] << 8) | buf[21]);
+  info->in_flight = (int32_t)((buf[22] << 24) | (buf[23] << 16) | (buf[24] << 8) | buf[25]);
+  info->rtt_us = ((uint64_t)buf[26] << 56) | ((uint64_t)buf[27] << 48) | 
+                 ((uint64_t)buf[28] << 40) | ((uint64_t)buf[29] << 32) |
+                 ((uint64_t)buf[30] << 24) | ((uint64_t)buf[31] << 16) |
+                 ((uint64_t)buf[32] << 8)  | (uint64_t)buf[33];
+  info->nak_count = (buf[34] << 24) | (buf[35] << 16) | (buf[36] << 8) | buf[37];
+  info->bitrate_bytes_per_sec = (buf[38] << 24) | (buf[39] << 16) | (buf[40] << 8) | buf[41];
+  
+  return 1;
+}
