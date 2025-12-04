@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <thread>
 
@@ -327,6 +328,59 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
     }
 }
 
+void SRTLAHandler::update_rtt_history(ConnectionStats &stats, uint64_t rtt) {
+    stats.rtt_history[stats.rtt_history_idx] = rtt;
+    stats.rtt_history_idx = (stats.rtt_history_idx + 1) % RTT_HISTORY_SIZE;
+    stats.rtt_us = rtt;
+}
+
+double SRTLAHandler::calculate_rtt_variance(const ConnectionStats &stats) {
+    // Count valid samples
+    int count = 0;
+    double sum = 0;
+    for (size_t i = 0; i < RTT_HISTORY_SIZE; i++) {
+        if (stats.rtt_history[i] > 0) {
+            sum += stats.rtt_history[i];
+            count++;
+        }
+    }
+    
+    if (count < 2) return 0;  // Need at least 2 samples
+    
+    double mean = sum / count;
+    double variance_sum = 0;
+    for (size_t i = 0; i < RTT_HISTORY_SIZE; i++) {
+        if (stats.rtt_history[i] > 0) {
+            double diff = static_cast<double>(stats.rtt_history[i]) - mean;
+            variance_sum += diff * diff;
+        }
+    }
+    
+    return std::sqrt(variance_sum / count);
+}
+
+void SRTLAHandler::update_connection_telemetry(const ConnectionPtr &conn,
+                                               const connection_info_t &info,
+                                               time_t current_time) {
+    auto &stats = conn->stats();
+    
+    // Update RTT with history
+    update_rtt_history(stats, info.rtt_us);
+    
+    // Update window metrics
+    stats.window = info.window;
+    stats.in_flight = info.in_flight;
+    
+    // Update NAK count
+    stats.sender_nak_count = info.nak_count;
+    
+    // Update bitrate
+    stats.sender_bitrate_bps = info.bitrate_bytes_per_sec;
+    
+    // Mark keepalive timestamp
+    stats.last_keepalive = current_time;
+}
+
 void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
                                     const ConnectionPtr &conn,
                                     const struct sockaddr_storage *addr,
@@ -356,6 +410,11 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
             nak_count,
             bitrate_kbps
         );
+        
+        // Store telemetry in connection stats
+        time_t current_time = 0;
+        get_seconds(&current_time);
+        update_connection_telemetry(conn, info, current_time);
     }
     
     // Echo the keepalive back to the sender

@@ -29,6 +29,13 @@ private:
                           const struct sockaddr_storage *addr,
                           const char *buffer,
                           int length);
+    
+    // Helper functions for keepalive telemetry
+    void update_rtt_history(ConnectionStats &stats, uint64_t rtt);
+    double calculate_rtt_variance(const ConnectionStats &stats);
+    void update_connection_telemetry(const connection::ConnectionPtr &conn,
+                                     const connection_info_t &info,
+                                     time_t current_time);
 
     int srtla_socket_;
     connection::ConnectionRegistry &registry_;

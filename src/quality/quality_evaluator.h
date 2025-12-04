@@ -26,6 +26,21 @@ private:
                               double median_kbits_per_sec,
                               double min_expected_kbits_per_sec,
                               bool is_poor_connection);
+    
+    // Helper functions for RTT-based quality assessment
+    uint32_t calculate_rtt_error_points(const ConnectionStats &stats, time_t current_time);
+    double calculate_rtt_variance(const ConnectionStats &stats);
+    
+    // Helper functions for NAK rate analysis
+    uint32_t calculate_nak_error_points(ConnectionStats &stats, uint64_t packets_diff);
+    
+    // Helper functions for window utilization
+    uint32_t calculate_window_error_points(const ConnectionStats &stats);
+    
+    // Helper function for bitrate validation
+    void validate_bitrate(const ConnectionStats &stats,
+                         double receiver_bitrate_bps,
+                         const struct sockaddr_storage *addr);
 };
 
 } // namespace srtla::quality

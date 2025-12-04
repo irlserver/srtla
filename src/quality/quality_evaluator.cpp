@@ -1,6 +1,7 @@
 #include "quality_evaluator.h"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -151,6 +152,20 @@ void QualityEvaluator::evaluate_group(ConnectionGroupPtr group, time_t current_t
             conn->stats().error_points += 5;
         }
 
+        // Add RTT-based error points (Phase 1)
+        conn->stats().error_points += calculate_rtt_error_points(conn->stats(), current_time);
+        
+        // Add NAK rate error points (Phase 2)
+        uint64_t packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
+        conn->stats().error_points += calculate_nak_error_points(conn->stats(), packets_diff);
+        
+        // Add window utilization error points (Phase 3)
+        conn->stats().error_points += calculate_window_error_points(conn->stats());
+        
+        // Validate bitrate (Phase 4 - logging only)
+        double receiver_bitrate_bps = metrics.bandwidth_kbits_per_sec * 125.0;  // kbits to bytes
+        validate_bitrate(conn->stats(), receiver_bitrate_bps, &conn->address());
+
         conn->stats().nack_count = 0;
 
         double log_percentage = 0.0;
@@ -171,6 +186,121 @@ void QualityEvaluator::evaluate_group(ConnectionGroupPtr group, time_t current_t
     }
 
     group->set_last_quality_eval(current_time);
+}
+
+double QualityEvaluator::calculate_rtt_variance(const ConnectionStats &stats) {
+    // Count valid samples
+    int count = 0;
+    double sum = 0;
+    for (size_t i = 0; i < RTT_HISTORY_SIZE; i++) {
+        if (stats.rtt_history[i] > 0) {
+            sum += stats.rtt_history[i];
+            count++;
+        }
+    }
+    
+    if (count < 2) return 0;  // Need at least 2 samples
+    
+    double mean = sum / count;
+    double variance_sum = 0;
+    for (size_t i = 0; i < RTT_HISTORY_SIZE; i++) {
+        if (stats.rtt_history[i] > 0) {
+            double diff = static_cast<double>(stats.rtt_history[i]) - mean;
+            variance_sum += diff * diff;
+        }
+    }
+    
+    return std::sqrt(variance_sum / count);
+}
+
+uint32_t QualityEvaluator::calculate_rtt_error_points(const ConnectionStats &stats, time_t current_time) {
+    // Don't use stale keepalive data
+    if (stats.last_keepalive == 0 || (current_time - stats.last_keepalive) > KEEPALIVE_STALENESS_THRESHOLD) {
+        return 0;
+    }
+    
+    uint32_t points = 0;
+    
+    // Base RTT penalties
+    if (stats.rtt_us > RTT_THRESHOLD_CRITICAL) {
+        points += 20;
+    } else if (stats.rtt_us > RTT_THRESHOLD_HIGH) {
+        points += 10;
+    } else if (stats.rtt_us > RTT_THRESHOLD_MODERATE) {
+        points += 5;
+    }
+    
+    // Jitter penalty
+    double variance = calculate_rtt_variance(stats);
+    if (variance > RTT_VARIANCE_THRESHOLD) {
+        points += 10;
+    }
+    
+    return points;
+}
+
+uint32_t QualityEvaluator::calculate_nak_error_points(ConnectionStats &stats, uint64_t packets_diff) {
+    if (packets_diff == 0 || stats.sender_nak_count == 0) {
+        return 0;
+    }
+    
+    uint32_t nak_diff = stats.sender_nak_count - stats.last_sender_nak_count;
+    double nak_rate = static_cast<double>(nak_diff) / packets_diff;
+    
+    uint32_t points = 0;
+    if (nak_rate > NAK_RATE_CRITICAL) {
+        points += 40;
+    } else if (nak_rate > NAK_RATE_HIGH) {
+        points += 20;
+    } else if (nak_rate > NAK_RATE_MODERATE) {
+        points += 10;
+    } else if (nak_rate > NAK_RATE_LOW) {
+        points += 5;
+    }
+    
+    stats.last_sender_nak_count = stats.sender_nak_count;
+    return points;
+}
+
+uint32_t QualityEvaluator::calculate_window_error_points(const ConnectionStats &stats) {
+    if (stats.window <= 0) {
+        return 0;
+    }
+    
+    double utilization = static_cast<double>(stats.in_flight) / stats.window;
+    
+    uint32_t points = 0;
+    
+    // Persistently full window indicates congestion
+    if (utilization > WINDOW_UTILIZATION_CONGESTED) {
+        points += 15;
+    }
+    
+    // Very low utilization might indicate client-side throttling
+    // This is informational, not necessarily bad, so we don't penalize
+    
+    return points;
+}
+
+void QualityEvaluator::validate_bitrate(const ConnectionStats &stats,
+                                        double receiver_bitrate_bps,
+                                        const struct sockaddr_storage *addr) {
+    if (stats.sender_bitrate_bps == 0) {
+        return;
+    }
+    
+    double ratio = std::abs(receiver_bitrate_bps - stats.sender_bitrate_bps)
+                   / stats.sender_bitrate_bps;
+    
+    if (ratio > BITRATE_DISCREPANCY_THRESHOLD) {
+        spdlog::warn("[{}:{}] Large bitrate discrepancy: "
+                     "sender={} bps, receiver={} bps ({:.1f}%)",
+                     print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                     port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                     stats.sender_bitrate_bps,
+                     static_cast<uint64_t>(receiver_bitrate_bps),
+                     ratio * 100);
+    }
 }
 
 } // namespace srtla::quality
