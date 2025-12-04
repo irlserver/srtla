@@ -12,6 +12,8 @@ extern "C" {
 #include "../common.h"
 }
 
+#include "../quality/quality_evaluator.h"
+
 namespace srtla::protocol {
 
 using srtla::connection::ConnectionGroupPtr;
@@ -130,7 +132,10 @@ void SRTLAHandler::process_packet(time_t ts) {
                      conn->stats().packets_lost);
 
         if (conn->stats().nack_count > 5 && (group->last_quality_eval() + 1) < ts) {
-            // quality evaluator will run during cleanup
+            // Trigger immediate quality evaluation for high NAK rates
+            // (timing protection in evaluator prevents excessive evaluations)
+            quality::QualityEvaluator evaluator;
+            evaluator.evaluate_group(group, ts);
         }
     }
 
@@ -332,31 +337,6 @@ void SRTLAHandler::update_rtt_history(ConnectionStats &stats, uint64_t rtt) {
     stats.rtt_history[stats.rtt_history_idx] = rtt;
     stats.rtt_history_idx = (stats.rtt_history_idx + 1) % RTT_HISTORY_SIZE;
     stats.rtt_us = rtt;
-}
-
-double SRTLAHandler::calculate_rtt_variance(const ConnectionStats &stats) {
-    // Count valid samples
-    int count = 0;
-    double sum = 0;
-    for (size_t i = 0; i < RTT_HISTORY_SIZE; i++) {
-        if (stats.rtt_history[i] > 0) {
-            sum += stats.rtt_history[i];
-            count++;
-        }
-    }
-    
-    if (count < 2) return 0;  // Need at least 2 samples
-    
-    double mean = sum / count;
-    double variance_sum = 0;
-    for (size_t i = 0; i < RTT_HISTORY_SIZE; i++) {
-        if (stats.rtt_history[i] > 0) {
-            double diff = static_cast<double>(stats.rtt_history[i]) - mean;
-            variance_sum += diff * diff;
-        }
-    }
-    
-    return std::sqrt(variance_sum / count);
 }
 
 void SRTLAHandler::update_connection_telemetry(const ConnectionPtr &conn,
