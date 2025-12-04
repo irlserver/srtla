@@ -20,9 +20,25 @@ void LoadBalancer::adjust_weights(ConnectionGroupPtr group, time_t current_time)
         return;
     }
 
+    const bool load_balancing_enabled = group->load_balancing_enabled();
+
+    if (load_balancing_enabled) {
+        if (group->last_load_balance_eval() >= group->last_quality_eval()) {
+            return;
+        }
+    } else {
+        time_t last_eval = group->last_load_balance_eval();
+        if (last_eval != 0 && (last_eval + CONN_QUALITY_EVAL_PERIOD) > current_time) {
+            return;
+        }
+    }
+
+    group->set_last_load_balance_eval(current_time);
+
     bool any_change = false;
     spdlog::debug("[Group: {}] Evaluating weights and throttle factors for {} connections",
                   static_cast<void *>(group.get()), group->connections().size());
+
 
     uint8_t max_weight = 0;
     int active_conns = 0;
@@ -57,9 +73,10 @@ void LoadBalancer::adjust_weights(ConnectionGroupPtr group, time_t current_time)
     }
 
     spdlog::debug("[Group: {}] Active connections: {}, max_weight: {}, load_balancing_enabled: {}",
-                  static_cast<void *>(group.get()), active_conns, max_weight, group->load_balancing_enabled());
+                  static_cast<void *>(group.get()), active_conns, max_weight, load_balancing_enabled);
+ 
+    if (load_balancing_enabled && active_conns > 1) {
 
-    if (group->load_balancing_enabled() && active_conns > 1) {
         for (auto &conn : group->connections()) {
             double old_throttle = conn->stats().ack_throttle_factor;
             double absolute_quality = static_cast<double>(conn->stats().weight_percent) / WEIGHT_FULL;

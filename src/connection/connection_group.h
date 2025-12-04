@@ -44,8 +44,12 @@ public:
     time_t last_quality_eval() const { return last_quality_eval_; }
     void set_last_quality_eval(time_t ts) { last_quality_eval_ = ts; }
 
+    time_t last_load_balance_eval() const { return last_load_balance_eval_; }
+    void set_last_load_balance_eval(time_t ts) { last_load_balance_eval_ = ts; }
+ 
     bool load_balancing_enabled() const { return load_balancing_enabled_; }
     void set_load_balancing_enabled(bool enabled) { load_balancing_enabled_ = enabled; }
+
 
     std::unordered_map<uint64_t, NakHashEntry> &nak_cache() { return nak_seen_hash_; }
 
@@ -64,7 +68,9 @@ private:
 
     uint64_t total_target_bandwidth_ = 0;
     time_t last_quality_eval_ = 0;
+    time_t last_load_balance_eval_ = 0;
     bool load_balancing_enabled_ = true;
+
 
     std::unordered_map<uint64_t, NakHashEntry> nak_seen_hash_;
     int epoll_fd_ = -1;
