@@ -1,3 +1,5 @@
+#pragma once
+
 /*
     srtla_rec - SRT transport proxy with link aggregation
     Copyright (C) 2020-2021 BELABOX project
@@ -18,6 +20,9 @@
     You should have received a copy of the GNU Affero General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
+
+#include <stdint.h>
+#include <time.h>
 
 #define MTU 1500
 

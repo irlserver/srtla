@@ -10,11 +10,22 @@ add_library(common_obj OBJECT
     src/common.h)
 
 add_executable(srtla_rec
-    src/receiver.cpp
-    src/receiver.h)
-
+    src/receiver_main.cpp
+    src/connection/connection.cpp
+    src/connection/connection_group.cpp
+    src/connection/connection_registry.cpp
+    src/quality/metrics_collector.cpp
+    src/quality/quality_evaluator.cpp
+    src/quality/load_balancer.cpp
+    src/protocol/srtla_handler.cpp
+    src/protocol/srt_handler.cpp
+    src/utils/network_utils.cpp
+    src/utils/nak_dedup.cpp)
+ 
 target_include_directories(srtla_rec PRIVATE
-    "deps/argparse/include")
+    "deps/argparse/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 target_link_libraries(srtla_rec PRIVATE
     common_obj
     spdlog::spdlog
