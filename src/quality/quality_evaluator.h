@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "metrics_collector.h"
 #include "../connection/connection_group.h"
 

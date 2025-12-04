@@ -31,6 +31,11 @@ bool NakDeduplicator::should_accept_nak(std::unordered_map<uint64_t, NakHashEntr
         return true;
     }
 
+if (current_time_ms < it->second.timestamp_ms) {
+        // Clock moved backwards, treat as within suppression window
+        return false;
+    }
+    
     if (current_time_ms - it->second.timestamp_ms < SUPPRESS_MS) {
         return false;
     }

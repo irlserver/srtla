@@ -293,7 +293,7 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
 
     if (conn->recv_index() == static_cast<int>(RECV_ACK_INT)) {
         bool should_send = true;
-        if (conn->stats().ack_throttle_factor < 1.0) {
+        if (conn->stats().ack_throttle_factor > 0.0f && conn->stats().ack_throttle_factor < 1.0) {
             uint64_t min_interval = ACK_THROTTLE_INTERVAL / conn->stats().ack_throttle_factor;
             if (conn->stats().last_ack_sent_time > 0 &&
                 current_ms < conn->stats().last_ack_sent_time + min_interval) {

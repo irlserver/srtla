@@ -5,6 +5,10 @@
 
 #include <spdlog/spdlog.h>
 
+extern "C" {
+#include "../common.h"
+}
+
 #include "../receiver_config.h"
 
 namespace srtla::quality {

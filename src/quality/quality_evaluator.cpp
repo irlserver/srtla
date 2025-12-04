@@ -26,9 +26,13 @@ void QualityEvaluator::evaluate_group(ConnectionGroupPtr group, time_t current_t
 
     spdlog::debug("[Group: {}] Evaluating connection quality", static_cast<void *>(group.get()));
 
-    group->set_total_target_bandwidth(0);
+group->set_total_target_bandwidth(0);
     uint64_t current_ms = 0;
-    get_ms(&current_ms);
+    if (get_ms(&current_ms) != 0) {
+        spdlog::error("[Group: {}] Failed to get current timestamp for quality evaluation", 
+                      static_cast<void *>(group.get()));
+        return;
+    }
 
     std::vector<QualityMetrics> bandwidth_info;
     bandwidth_info.reserve(group->connections().size());
@@ -39,6 +43,9 @@ void QualityEvaluator::evaluate_group(ConnectionGroupPtr group, time_t current_t
             time_diff_ms = current_ms - conn->stats().last_eval_time;
         }
 
+double bandwidth_kbits_per_sec = 0.0;
+        double packet_loss_ratio = 0.0;
+        
         if (time_diff_ms > 0) {
             uint64_t bytes_diff = conn->stats().bytes_received - conn->stats().last_bytes_received;
             uint64_t packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
@@ -46,16 +53,16 @@ void QualityEvaluator::evaluate_group(ConnectionGroupPtr group, time_t current_t
 
             double seconds = static_cast<double>(time_diff_ms) / 1000.0;
             double bandwidth_bytes_per_sec = bytes_diff / seconds;
-            double bandwidth_kbits_per_sec = (bandwidth_bytes_per_sec * 8.0) / 1000.0;
+            bandwidth_kbits_per_sec = (bandwidth_bytes_per_sec * 8.0) / 1000.0;
 
-            double packet_loss_ratio = 0.0;
             if (packets_diff > 0) {
                 packet_loss_ratio = static_cast<double>(lost_diff) / (packets_diff + lost_diff);
             }
 
-            bandwidth_info.push_back({bandwidth_kbits_per_sec, packet_loss_ratio, 0});
             group->set_total_target_bandwidth(group->total_target_bandwidth() + static_cast<uint64_t>(bandwidth_bytes_per_sec));
         }
+
+        bandwidth_info.push_back({bandwidth_kbits_per_sec, packet_loss_ratio, 0});
 
         conn->stats().last_bytes_received = conn->stats().bytes_received;
         conn->stats().last_packets_received = conn->stats().packets_received;

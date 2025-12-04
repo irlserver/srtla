@@ -58,62 +58,82 @@ int NetworkUtils::resolve_srt_address(const char *host,
         return -1;
     }
 
-    int tmp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (tmp_sock < 0) {
-        spdlog::error("Failed to create a UDP socket");
-        freeaddrinfo(srt_addrs);
-        return -1;
-    }
-
-    if (setsockopt(tmp_sock, SOL_SOCKET, SO_RCVBUF, &recv_buf_size, sizeof(recv_buf_size)) != 0) {
-        spdlog::error("Failed to set a receive buffer size ({})", recv_buf_size);
-        close(tmp_sock);
-        freeaddrinfo(srt_addrs);
-        return -1;
-    }
-
-    if (setsockopt(tmp_sock, SOL_SOCKET, SO_SNDBUF, &send_buf_size, sizeof(send_buf_size)) != 0) {
-        spdlog::error("Failed to set a send buffer size ({})", send_buf_size);
-        close(tmp_sock);
-        freeaddrinfo(srt_addrs);
-        return -1;
-    }
-
-    int found = -1;
+int found = -1;
+    int tmp_sock = -1;
+    
     for (struct addrinfo *addr = srt_addrs; addr != nullptr && found == -1; addr = addr->ai_next) {
         spdlog::info("Trying to connect to SRT at {}:{}...", print_addr(addr->ai_addr), port);
-        if (addr->ai_family == AF_INET) {
-            ret = connect(tmp_sock, addr->ai_addr, sizeof(struct sockaddr_in));
-        } else if (addr->ai_family == AF_INET6) {
-            ret = connect(tmp_sock, addr->ai_addr, sizeof(struct sockaddr_in6));
-        } else {
-            spdlog::warn("Unsupported address family, skipping");
+        
+        // Create socket with the appropriate family for this address
+        tmp_sock = socket(addr->ai_family, SOCK_DGRAM, 0);
+        if (tmp_sock < 0) {
+            spdlog::error("Failed to create a UDP socket for family {}", addr->ai_family);
             continue;
         }
 
-        if (ret == 0) {
-            ret = send(tmp_sock, &hs_packet, sizeof(hs_packet), 0);
-            if (ret == sizeof(hs_packet)) {
-                char buffer[MTU];
-                ret = recv(tmp_sock, &buffer, MTU, 0);
-                if (ret == sizeof(hs_packet)) {
-                    if (addr->ai_family == AF_INET) {
-                        std::memcpy(out_addr, addr->ai_addr, sizeof(struct sockaddr_in));
-                    } else {
-                        std::memcpy(out_addr, addr->ai_addr, sizeof(struct sockaddr_in6));
-                    }
-                    spdlog::info("Success");
-                    found = 1;
-                }
+        // Set socket options
+        bool socket_opts_ok = true;
+        if (setsockopt(tmp_sock, SOL_SOCKET, SO_RCVBUF, &recv_buf_size, sizeof(recv_buf_size)) != 0) {
+            spdlog::error("Failed to set a receive buffer size ({})", recv_buf_size);
+            socket_opts_ok = false;
+        }
+        if (socket_opts_ok && setsockopt(tmp_sock, SOL_SOCKET, SO_SNDBUF, &send_buf_size, sizeof(send_buf_size)) != 0) {
+            spdlog::error("Failed to set a send buffer size ({})", send_buf_size);
+            socket_opts_ok = false;
+        }
+        
+        // Set receive timeout to prevent indefinite blocking
+        if (socket_opts_ok) {
+            struct timeval timeout;
+            timeout.tv_sec = 2;  // 2 seconds timeout
+            timeout.tv_usec = 0;
+            if (setsockopt(tmp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0) {
+                spdlog::error("Failed to set receive timeout");
+                socket_opts_ok = false;
             }
         }
+        
+        if (!socket_opts_ok) {
+            close(tmp_sock);
+            tmp_sock = -1;
+            continue;
+        }
 
-        if (found == -1) {
-            spdlog::info("Error");
+        // Connect to the address
+        ret = connect(tmp_sock, addr->ai_addr, addr->ai_addrlen);
+        if (ret != 0) {
+            spdlog::info("Connection failed");
+            close(tmp_sock);
+            tmp_sock = -1;
+            continue;
+        }
+
+        // Send handshake packet
+        ret = send(tmp_sock, &hs_packet, sizeof(hs_packet), 0);
+        if (ret != sizeof(hs_packet)) {
+            spdlog::info("Failed to send handshake packet");
+            close(tmp_sock);
+            tmp_sock = -1;
+            continue;
+        }
+
+        // Receive response
+        char buffer[MTU];
+        ret = recv(tmp_sock, &buffer, MTU, 0);
+        if (ret == sizeof(hs_packet)) {
+            std::memcpy(out_addr, addr->ai_addr, addr->ai_addrlen);
+            spdlog::info("Success");
+            found = 1;
+        } else {
+            spdlog::info("Failed to receive handshake response");
+            close(tmp_sock);
+            tmp_sock = -1;
         }
     }
 
-    close(tmp_sock);
+    if (tmp_sock != -1) {
+        close(tmp_sock);
+    }
 
     if (found == -1 && srt_addrs != nullptr) {
         if (srt_addrs->ai_family == AF_INET) {

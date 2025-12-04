@@ -693,8 +693,15 @@ inline std::vector<char> get_random_bytes(size_t size) {
   ret.resize(size);
 
   std::ifstream f("/dev/urandom");
+  if (!f.is_open()) {
+    throw std::runtime_error("Failed to open /dev/urandom for random bytes");
+  }
+
   f.read(ret.data(), size);
-  assert(f); // Failed to read fully!
+  if (f.gcount() != static_cast<std::streamsize>(size) || f.fail()) {
+    f.close();
+    throw std::runtime_error("Failed to read sufficient random bytes from /dev/urandom");
+  }
   f.close();
 
   return ret;
@@ -744,8 +751,9 @@ int main(int argc, char **argv) {
 
   int port = args.get<uint16_t>("listen_port");
 
-  // Read a random connection group id for this session
-  auto srtla_id = get_random_bytes(SRTLA_ID_LEN / 2);
+// Read a random connection group id for this session
+  auto random_bytes = get_random_bytes(SRTLA_ID_LEN / 2);
+  std::memcpy(srtla_id, random_bytes.data(), SRTLA_ID_LEN / 2);
   
   FD_ZERO(&active_fds);
 

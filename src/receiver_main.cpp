@@ -149,9 +149,10 @@ int main(int argc, char **argv) {
         struct epoll_event events[MAX_EPOLL_EVENTS];
         int eventcnt = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 1000);
 
-        time_t ts = 0;
+time_t ts = 0;
         if (get_seconds(&ts) != 0) {
             spdlog::error("Failed to get the current time");
+            continue;
         }
 
         std::size_t group_cnt;
