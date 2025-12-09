@@ -375,20 +375,20 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         int32_t in_flight = info.in_flight;
         uint64_t rtt_us = info.rtt_us;
         uint32_t nak_count = info.nak_count;
-        uint32_t bitrate_kbps = info.bitrate_bytes_per_sec / 1000;
+        double bitrate_kbits = (static_cast<double>(info.bitrate_bytes_per_sec) * 8.0) / 1000.0;
         
         spdlog::info(
-            "[{}:{}] [Group: {}] Uplink telemetry: conn_id={}, window={}, in_flight={}, "
-            "rtt={}us, naks={}, bitrate={}KB/s",
+            "  [{}:{}] [Group: {}] Per-connection keepalive: ID={}, BW: {:.2f} kbits/s, Window={}, "
+            "In-flight={}, RTT={}us, NAKs={}",
             print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
             port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
             static_cast<void *>(group.get()),
             conn_id,
+            bitrate_kbits,
             window,
             in_flight,
             rtt_us,
-            nak_count,
-            bitrate_kbps
+            nak_count
         );
         
         // Store telemetry in connection stats
