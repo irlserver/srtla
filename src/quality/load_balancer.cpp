@@ -111,6 +111,25 @@ void LoadBalancer::adjust_weights(ConnectionGroupPtr group, time_t current_time)
     if (any_change) {
         spdlog::info("[Group: {}] Connection parameters adjusted:", static_cast<void *>(group.get()));
         for (auto &conn : group->connections()) {
+#if ENABLE_ALGO_COMPARISON
+            // Show side-by-side comparison of both algorithms
+            int error_delta = static_cast<int>(conn->stats().error_points) - static_cast<int>(conn->stats().legacy_error_points);
+            int weight_delta = static_cast<int>(conn->stats().weight_percent) - static_cast<int>(conn->stats().legacy_weight_percent);
+            double throttle_delta = conn->stats().ack_throttle_factor - conn->stats().legacy_ack_throttle_factor;
+            
+            spdlog::info("  [{}:{}] [COMPARISON] ConnInfo: Weight={}%, Throttle={:.2f}, ErrPts={} | Legacy: Weight={}%, Throttle={:.2f}, ErrPts={} | Delta: W={:+d}%, T={:+.2f}, E={:+d}",
+                         print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                         port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                         conn->stats().weight_percent,
+                         conn->stats().ack_throttle_factor,
+                         conn->stats().error_points,
+                         conn->stats().legacy_weight_percent,
+                         conn->stats().legacy_ack_throttle_factor,
+                         conn->stats().legacy_error_points,
+                         weight_delta,
+                         throttle_delta,
+                         error_delta);
+#else
             spdlog::info("  [{}:{}] Weight: {}%, Throttle: {:.2f}, Error points: {}, Bandwidth: {} bytes, Packets: {}, Loss: {}",
                          print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
                          port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
@@ -120,6 +139,7 @@ void LoadBalancer::adjust_weights(ConnectionGroupPtr group, time_t current_time)
                          conn->stats().bytes_received,
                          conn->stats().packets_received,
                          conn->stats().packets_lost);
+#endif
         }
     } else {
         spdlog::debug("[Group: {}] No weight or throttle adjustments needed", static_cast<void *>(group.get()));

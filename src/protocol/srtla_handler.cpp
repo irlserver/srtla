@@ -366,10 +366,17 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
                                     const struct sockaddr_storage *addr,
                                     const char *buffer,
                                     int length) {
-    // Try to parse extended keepalive with connection info
+    time_t current_time = 0;
+    get_seconds(&current_time);
+    
+    // ========================================================================
+    // ALWAYS parse connection info when available
+    // ========================================================================
     connection_info_t info;
-    if (parse_keepalive_conn_info(reinterpret_cast<const uint8_t *>(buffer), length, &info)) {
-        // Copy values to avoid packed field reference issues
+    bool has_conn_info = parse_keepalive_conn_info(reinterpret_cast<const uint8_t *>(buffer), length, &info);
+    
+    if (has_conn_info) {
+        // Copy values for logging to avoid packed field reference issues
         uint32_t conn_id = info.conn_id;
         int32_t window = info.window;
         int32_t in_flight = info.in_flight;
@@ -377,6 +384,10 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         uint32_t nak_count = info.nak_count;
         double bitrate_kbits = (static_cast<double>(info.bitrate_bytes_per_sec) * 8.0) / 1000.0;
         
+        // Store telemetry in connection stats (used by Connection Info algorithm)
+        update_connection_telemetry(conn, info, current_time);
+        
+        // Log the detailed keepalive packet data
         spdlog::info(
             "  [{}:{}] [Group: {}] Per-connection keepalive: ID={}, BW: {:.2f} kbits/s, Window={}, "
             "In-flight={}, RTT={}us, NAKs={}",
@@ -391,10 +402,43 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
             nak_count
         );
         
-        // Store telemetry in connection stats
-        time_t current_time = 0;
-        get_seconds(&current_time);
-        update_connection_telemetry(conn, info, current_time);
+#if ENABLE_ALGO_COMPARISON
+        // ====================================================================
+        // ALGORITHM COMPARISON: Show decisions from both algorithms
+        // ====================================================================
+        int error_delta = static_cast<int>(conn->stats().error_points) - static_cast<int>(conn->stats().legacy_error_points);
+        int weight_delta = static_cast<int>(conn->stats().weight_percent) - static_cast<int>(conn->stats().legacy_weight_percent);
+        double throttle_delta = conn->stats().ack_throttle_factor - conn->stats().legacy_ack_throttle_factor;
+        
+        // Only log comparison if there's a meaningful difference (reduce spam)
+        if (std::abs(weight_delta) >= 5 || std::abs(error_delta) >= 5) {
+            spdlog::info(
+                "  [{}:{}] [ALGO_CMP] ConnInfo: Err={} W={}% T={:.2f} | "
+                "Legacy: Err={} W={}% T={:.2f} | "
+                "Delta: E={:+d} W={:+d}% T={:+.2f}",
+                print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                conn->stats().error_points,
+                conn->stats().weight_percent,
+                conn->stats().ack_throttle_factor,
+                conn->stats().legacy_error_points,
+                conn->stats().legacy_weight_percent,
+                conn->stats().legacy_ack_throttle_factor,
+                error_delta,
+                weight_delta,
+                throttle_delta
+            );
+        }
+#endif
+    } else {
+        // No connection info in keepalive packet
+        spdlog::debug(
+            "  [{}:{}] [Group: {}] Keepalive without connection info - "
+            "both algorithms will use receiver-side metrics only",
+            print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+            port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+            static_cast<void *>(group.get())
+        );
     }
     
     // Echo the keepalive back to the sender

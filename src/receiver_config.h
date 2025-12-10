@@ -3,6 +3,17 @@
 #include <cstdint>
 #include <ctime>
 
+// ============================================================================
+// COMPARISON MODE: Connection Info Algorithm Comparison
+// ============================================================================
+// When enabled (1): Run BOTH algorithms simultaneously on same data and log
+//                   the differences for real-time comparison
+// When disabled (0): Run only the connection info algorithm (production mode)
+// ============================================================================
+#ifndef ENABLE_ALGO_COMPARISON
+#define ENABLE_ALGO_COMPARISON 1
+#endif
+
 namespace srtla {
 inline constexpr int MAX_CONNS_PER_GROUP = 16;
 inline constexpr int MAX_GROUPS = 200;
@@ -59,7 +70,7 @@ struct srtla_ack_pkt {
 };
 
 struct ConnectionStats {
-  // Receiver-side metrics
+  // Receiver-side metrics (used by both algorithms)
   uint64_t bytes_received = 0;
   uint64_t packets_received = 0;
   uint32_t packets_lost = 0;
@@ -73,7 +84,7 @@ struct ConnectionStats {
   double ack_throttle_factor = 1.0;
   uint16_t nack_count = 0;
 
-  // Sender-side telemetry from keepalive packets
+  // Sender-side telemetry from keepalive packets (Connection Info algorithm)
   uint64_t rtt_us = 0;
   uint64_t rtt_history[RTT_HISTORY_SIZE] = {0};
   uint8_t rtt_history_idx = 0;
@@ -86,6 +97,11 @@ struct ConnectionStats {
   uint32_t last_sender_nak_count = 0;
 
   uint32_t sender_bitrate_bps = 0;
+
+  // Legacy algorithm parallel tracking (for comparison mode)
+  uint32_t legacy_error_points = 0;
+  uint8_t legacy_weight_percent = WEIGHT_FULL;
+  double legacy_ack_throttle_factor = 1.0;
 };
 
 } // namespace srtla

@@ -139,6 +139,10 @@ double bandwidth_kbits_per_sec = 0.0;
         expected_kbits_per_sec = std::max(expected_kbits_per_sec, min_expected_kbits_per_sec);
 
         double performance_ratio = expected_kbits_per_sec > 0 ? metrics.bandwidth_kbits_per_sec / expected_kbits_per_sec : 0;
+        
+        // ====================================================================
+        // CONNECTION INFO ALGORITHM: Uses sender telemetry
+        // ====================================================================
         if (performance_ratio < 0.3) {
             conn->stats().error_points += 40;
         } else if (performance_ratio < 0.5) {
@@ -174,6 +178,14 @@ double bandwidth_kbits_per_sec = 0.0;
         validate_bitrate(conn->stats(), receiver_bitrate_bps, &conn->address());
 
         conn->stats().nack_count = 0;
+
+#if ENABLE_ALGO_COMPARISON
+        // ====================================================================
+        // LEGACY ALGORITHM: Parallel evaluation for comparison
+        // ====================================================================
+        evaluate_connection_legacy(conn, metrics.bandwidth_kbits_per_sec, 
+                                   metrics.packet_loss_ratio, performance_ratio, current_time);
+#endif
 
         double log_percentage = 0.0;
         if (is_poor_connection && median_kbits_per_sec > 0) {
@@ -308,6 +320,64 @@ void QualityEvaluator::validate_bitrate(const ConnectionStats &stats,
                      static_cast<uint64_t>(receiver_bitrate_bps),
                      ratio * 100);
     }
+}
+
+void QualityEvaluator::evaluate_connection_legacy(ConnectionPtr conn,
+                                                   double bandwidth_kbits_per_sec,
+                                                   double packet_loss_ratio,
+                                                   double performance_ratio,
+                                                   time_t current_time) {
+    // ========================================================================
+    // LEGACY ALGORITHM: No connection info (RTT, window, sender NAKs, etc.)
+    // Only uses receiver-side bandwidth and packet loss measurements
+    // ========================================================================
+    conn->stats().legacy_error_points = 0;
+    
+    // Bandwidth-based penalties (same as connection info algorithm)
+    if (performance_ratio < 0.3) {
+        conn->stats().legacy_error_points += 40;
+    } else if (performance_ratio < 0.5) {
+        conn->stats().legacy_error_points += 25;
+    } else if (performance_ratio < 0.7) {
+        conn->stats().legacy_error_points += 15;
+    } else if (performance_ratio < 0.85) {
+        conn->stats().legacy_error_points += 5;
+    }
+    
+    // Packet loss penalties (same as connection info algorithm)
+    if (packet_loss_ratio > 0.20) {
+        conn->stats().legacy_error_points += 40;
+    } else if (packet_loss_ratio > 0.10) {
+        conn->stats().legacy_error_points += 20;
+    } else if (packet_loss_ratio > 0.05) {
+        conn->stats().legacy_error_points += 10;
+    } else if (packet_loss_ratio > 0.01) {
+        conn->stats().legacy_error_points += 5;
+    }
+    
+    // NOTE: Legacy algorithm does NOT have:
+    // - RTT-based penalties
+    // - Sender NAK rate analysis
+    // - Window utilization penalties
+    // - Bitrate discrepancy validation
+    
+    // Calculate legacy weight and throttle (same logic as connection info)
+    if (conn->stats().legacy_error_points >= 40) {
+        conn->stats().legacy_weight_percent = WEIGHT_CRITICAL;
+    } else if (conn->stats().legacy_error_points >= 30) {
+        conn->stats().legacy_weight_percent = WEIGHT_POOR;
+    } else if (conn->stats().legacy_error_points >= 20) {
+        conn->stats().legacy_weight_percent = WEIGHT_FAIR;
+    } else if (conn->stats().legacy_error_points >= 10) {
+        conn->stats().legacy_weight_percent = WEIGHT_DEGRADED;
+    } else if (conn->stats().legacy_error_points >= 5) {
+        conn->stats().legacy_weight_percent = WEIGHT_EXCELLENT;
+    } else {
+        conn->stats().legacy_weight_percent = WEIGHT_FULL;
+    }
+    
+    conn->stats().legacy_ack_throttle_factor = 
+        std::max(MIN_ACK_RATE, static_cast<double>(conn->stats().legacy_weight_percent) / 100.0);
 }
 
 } // namespace srtla::quality
