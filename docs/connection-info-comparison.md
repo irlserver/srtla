@@ -45,7 +45,7 @@ The comparison mode is controlled in `src/receiver_config.h:13-15`:
 Every keepalive with connection info logs the detailed telemetry:
 
 ```
-[INFO] [192.168.1.100:5000] [Group: 0x...] Per-connection keepalive: ID=0, BW: 2500.00 kbits/s, Window=8192, In-flight=120, RTT=45000us, NAKs=3
+[INFO] [192.168.1.100:5000] [Group: 0x...] Per-connection keepalive: ID=0, BW: 2500.00 kbits/s, Window=8192, In-flight=120, RTT=45ms, NAKs=3
 ```
 
 ### Algorithm Comparison Logs (When Enabled)
@@ -117,7 +117,7 @@ This shows the final decisions from both algorithms for all connections.
 
 **Keepalive:**
 ```
-[INFO] Per-connection keepalive: ID=0, BW: 2000.00 kbits/s, Window=8192, In-flight=50, RTT=350000us, NAKs=1
+[INFO] Per-connection keepalive: ID=0, BW: 2000.00 kbits/s, Window=8192, In-flight=50, RTT=350ms, NAKs=1
 ```
 
 **Comparison:**
@@ -135,7 +135,7 @@ This shows the final decisions from both algorithms for all connections.
 
 **Keepalive:**
 ```
-[INFO] Per-connection keepalive: ID=1, BW: 1500.00 kbits/s, Window=4096, In-flight=2048, RTT=50000us, NAKs=500
+[INFO] Per-connection keepalive: ID=1, BW: 1500.00 kbits/s, Window=4096, In-flight=2048, RTT=50ms, NAKs=500
 ```
 
 **Comparison:**
@@ -153,7 +153,7 @@ This shows the final decisions from both algorithms for all connections.
 
 **Keepalive:**
 ```
-[INFO] Per-connection keepalive: ID=2, BW: 3000.00 kbits/s, Window=8192, In-flight=100, RTT=30000us, NAKs=2
+[INFO] Per-connection keepalive: ID=2, BW: 3000.00 kbits/s, Window=8192, In-flight=100, RTT=30ms, NAKs=2
 ```
 
 **Comparison:**
