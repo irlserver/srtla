@@ -15,11 +15,13 @@ typedef struct __attribute__((__packed__)) {
   uint32_t conn_id;
   int32_t window;                    // SRT window size
   int32_t in_flight;                 // Packets currently in flight
-  uint64_t rtt_us;                   // Round-trip time in microseconds
+  uint32_t rtt_ms;                   // Round-trip time in milliseconds
   uint32_t nak_count;                // NAK (retransmission) count
   uint32_t bitrate_bytes_per_sec;    // Client-side bitrate measurement
 } connection_info_t;
 ```
+
+**Packet Length**: 38 bytes (extended keepalive)
 
 **Previous Status**: This data was only parsed and logged, not used for decision-making.
 
@@ -98,8 +100,8 @@ typedef struct __attribute__((__packed__)) {
 
 ### Step 1: Data Structure Updates ✅
 - [x] Add keepalive metrics fields to `ConnectionStats` (receiver_config.h)
-  - `uint64_t rtt_us`
-  - `uint64_t rtt_history[RTT_HISTORY_SIZE]`
+  - `uint32_t rtt_ms`
+  - `uint32_t rtt_history[RTT_HISTORY_SIZE]`
   - `uint8_t rtt_history_idx`
   - `time_t last_keepalive`
   - `int32_t window`
@@ -145,10 +147,10 @@ typedef struct __attribute__((__packed__)) {
 New parameters to add:
 
 ```cpp
-// RTT thresholds (microseconds)
-inline constexpr uint64_t RTT_THRESHOLD_CRITICAL = 500000;  // 500ms
-inline constexpr uint64_t RTT_THRESHOLD_HIGH = 200000;      // 200ms
-inline constexpr uint64_t RTT_THRESHOLD_MODERATE = 100000;  // 100ms
+// RTT thresholds (milliseconds)
+inline constexpr uint32_t RTT_THRESHOLD_CRITICAL = 500;  // 500ms
+inline constexpr uint32_t RTT_THRESHOLD_HIGH = 200;      // 200ms
+inline constexpr uint32_t RTT_THRESHOLD_MODERATE = 100;  // 100ms
 
 // Window utilization thresholds
 inline constexpr double WINDOW_UTILIZATION_CONGESTED = 0.95;
@@ -158,7 +160,7 @@ inline constexpr double WINDOW_UTILIZATION_LOW = 0.30;
 inline constexpr double BITRATE_DISCREPANCY_THRESHOLD = 0.20;  // 20%
 
 // RTT variance threshold for jitter detection
-inline constexpr uint64_t RTT_VARIANCE_THRESHOLD = 50000;  // 50ms stddev
+inline constexpr uint32_t RTT_VARIANCE_THRESHOLD = 50;  // 50ms stddev
 ```
 
 ## Risks and Mitigations

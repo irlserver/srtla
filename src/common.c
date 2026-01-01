@@ -152,15 +152,13 @@ int parse_keepalive_conn_info(const uint8_t *buf, int len,
   info->in_flight =
       (int32_t)(((uint32_t)buf[22] << 24) | ((uint32_t)buf[23] << 16) |
                 ((uint32_t)buf[24] << 8) | buf[25]);
-  info->rtt_us = ((uint64_t)buf[26] << 56) | ((uint64_t)buf[27] << 48) |
-                 ((uint64_t)buf[28] << 40) | ((uint64_t)buf[29] << 32) |
-                 ((uint64_t)buf[30] << 24) | ((uint64_t)buf[31] << 16) |
-                 ((uint64_t)buf[32] << 8) | (uint64_t)buf[33];
-  info->nak_count = ((uint32_t)buf[34] << 24) | ((uint32_t)buf[35] << 16) |
-                    ((uint32_t)buf[36] << 8) | buf[37];
-  info->bitrate_bytes_per_sec = ((uint32_t)buf[38] << 24) |
-                                ((uint32_t)buf[39] << 16) |
-                                ((uint32_t)buf[40] << 8) | buf[41];
+  info->rtt_ms = ((uint32_t)buf[26] << 24) | ((uint32_t)buf[27] << 16) |
+                 ((uint32_t)buf[28] << 8) | buf[29];
+  info->nak_count = ((uint32_t)buf[30] << 24) | ((uint32_t)buf[31] << 16) |
+                    ((uint32_t)buf[32] << 8) | buf[33];
+  info->bitrate_bytes_per_sec = ((uint32_t)buf[34] << 24) |
+                                ((uint32_t)buf[35] << 16) |
+                                ((uint32_t)buf[36] << 8) | buf[37];
 
   return 1;
 }

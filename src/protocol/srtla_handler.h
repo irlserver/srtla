@@ -31,7 +31,7 @@ private:
                           int length);
     
     // Helper functions for keepalive telemetry
-    void update_rtt_history(ConnectionStats &stats, uint64_t rtt);
+    void update_rtt_history(ConnectionStats &stats, uint32_t rtt);
     void update_connection_telemetry(const connection::ConnectionPtr &conn,
                                      const connection_info_t &info,
                                      time_t current_time);

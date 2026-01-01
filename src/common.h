@@ -44,7 +44,7 @@
 // Extended KEEPALIVE with Connection Info
 #define SRTLA_KEEPALIVE_MAGIC 0xC01F
 #define SRTLA_KEEPALIVE_STD_LEN 10
-#define SRTLA_KEEPALIVE_EXT_LEN 42
+#define SRTLA_KEEPALIVE_EXT_LEN 38
 #define SRTLA_KEEPALIVE_EXT_VERSION 0x0001
 
 #define SRT_MIN_LEN 16
@@ -84,7 +84,7 @@ typedef struct __attribute__((__packed__)) {
   uint32_t conn_id;
   int32_t window;
   int32_t in_flight;
-  uint64_t rtt_us;
+  uint32_t rtt_ms;
   uint32_t nak_count;
   uint32_t bitrate_bytes_per_sec;
 } connection_info_t;

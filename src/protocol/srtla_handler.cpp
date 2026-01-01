@@ -333,10 +333,10 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
     }
 }
 
-void SRTLAHandler::update_rtt_history(ConnectionStats &stats, uint64_t rtt) {
+void SRTLAHandler::update_rtt_history(ConnectionStats &stats, uint32_t rtt) {
     stats.rtt_history[stats.rtt_history_idx] = rtt;
     stats.rtt_history_idx = (stats.rtt_history_idx + 1) % RTT_HISTORY_SIZE;
-    stats.rtt_us = rtt;
+    stats.rtt_ms = rtt;
 }
 
 void SRTLAHandler::update_connection_telemetry(const ConnectionPtr &conn,
@@ -345,7 +345,7 @@ void SRTLAHandler::update_connection_telemetry(const ConnectionPtr &conn,
     auto &stats = conn->stats();
     
     // Update RTT with history
-    update_rtt_history(stats, info.rtt_us);
+    update_rtt_history(stats, info.rtt_ms);
     
     // Update window metrics
     stats.window = info.window;
@@ -380,7 +380,7 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         uint32_t conn_id = info.conn_id;
         int32_t window = info.window;
         int32_t in_flight = info.in_flight;
-        uint64_t rtt_us = info.rtt_us;
+        uint32_t rtt_ms = info.rtt_ms;
         uint32_t nak_count = info.nak_count;
         double bitrate_kbits = (static_cast<double>(info.bitrate_bytes_per_sec) * 8.0) / 1000.0;
         
@@ -390,7 +390,7 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         // Log the detailed keepalive packet data
         spdlog::info(
             "  [{}:{}] [Group: {}] Per-connection keepalive: ID={}, BW: {:.2f} kbits/s, Window={}, "
-            "In-flight={}, RTT={}us, NAKs={}",
+            "In-flight={}, RTT={}ms, NAKs={}",
             print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
             port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
             static_cast<void *>(group.get()),
@@ -398,7 +398,7 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
             bitrate_kbits,
             window,
             in_flight,
-            rtt_us,
+            rtt_ms,
             nak_count
         );
         

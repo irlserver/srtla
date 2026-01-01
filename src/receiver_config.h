@@ -40,11 +40,11 @@ inline constexpr int WEIGHT_FAIR = 55;
 inline constexpr int WEIGHT_POOR = 40;
 inline constexpr int WEIGHT_CRITICAL = 10;
 
-// RTT-based quality assessment thresholds (microseconds)
-inline constexpr uint64_t RTT_THRESHOLD_CRITICAL = 500000; // 500ms
-inline constexpr uint64_t RTT_THRESHOLD_HIGH = 200000;     // 200ms
-inline constexpr uint64_t RTT_THRESHOLD_MODERATE = 100000; // 100ms
-inline constexpr uint64_t RTT_VARIANCE_THRESHOLD = 50000;  // 50ms stddev
+// RTT-based quality assessment thresholds (milliseconds)
+inline constexpr uint32_t RTT_THRESHOLD_CRITICAL = 500; // 500ms
+inline constexpr uint32_t RTT_THRESHOLD_HIGH = 200;     // 200ms
+inline constexpr uint32_t RTT_THRESHOLD_MODERATE = 100; // 100ms
+inline constexpr uint32_t RTT_VARIANCE_THRESHOLD = 50;  // 50ms stddev
 inline constexpr int KEEPALIVE_STALENESS_THRESHOLD = 2;    // seconds
 inline constexpr std::size_t RTT_HISTORY_SIZE = 5;
 
@@ -85,8 +85,8 @@ struct ConnectionStats {
   uint16_t nack_count = 0;
 
   // Sender-side telemetry from keepalive packets (Connection Info algorithm)
-  uint64_t rtt_us = 0;
-  uint64_t rtt_history[RTT_HISTORY_SIZE] = {0};
+  uint32_t rtt_ms = 0;
+  uint32_t rtt_history[RTT_HISTORY_SIZE] = {0};
   uint8_t rtt_history_idx = 0;
   time_t last_keepalive = 0;
 

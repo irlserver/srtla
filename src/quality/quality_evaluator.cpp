@@ -241,11 +241,11 @@ uint32_t QualityEvaluator::calculate_rtt_error_points(const ConnectionStats &sta
     uint32_t points = 0;
     
     // Base RTT penalties
-    if (stats.rtt_us > RTT_THRESHOLD_CRITICAL) {
+    if (stats.rtt_ms > RTT_THRESHOLD_CRITICAL) {
         points += 20;
-    } else if (stats.rtt_us > RTT_THRESHOLD_HIGH) {
+    } else if (stats.rtt_ms > RTT_THRESHOLD_HIGH) {
         points += 10;
-    } else if (stats.rtt_us > RTT_THRESHOLD_MODERATE) {
+    } else if (stats.rtt_ms > RTT_THRESHOLD_MODERATE) {
         points += 5;
     }
     
