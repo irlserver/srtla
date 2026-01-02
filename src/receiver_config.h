@@ -70,7 +70,7 @@ struct srtla_ack_pkt {
 };
 
 struct ConnectionStats {
-  // Receiver-side metrics (used by both algorithms)
+  // Receiver-side metrics (always available)
   uint64_t bytes_received = 0;
   uint64_t packets_received = 0;
   uint32_t packets_lost = 0;
@@ -84,11 +84,13 @@ struct ConnectionStats {
   double ack_throttle_factor = 1.0;
   uint16_t nack_count = 0;
 
-  // Sender-side telemetry from keepalive packets (Connection Info algorithm)
+  // Sender-side telemetry from keepalive packets (when available)
+  // These are populated when the sender includes connection_info_t in keepalives.
+  // When not available, the quality algorithm falls back to receiver-only metrics.
   uint32_t rtt_ms = 0;
   uint32_t rtt_history[RTT_HISTORY_SIZE] = {0};
   uint8_t rtt_history_idx = 0;
-  time_t last_keepalive = 0;
+  time_t last_keepalive = 0;  // Timestamp of last keepalive with valid sender telemetry
 
   int32_t window = 0;
   int32_t in_flight = 0;
@@ -98,10 +100,25 @@ struct ConnectionStats {
 
   uint32_t sender_bitrate_bps = 0;
 
-  // Legacy algorithm parallel tracking (for comparison mode)
+  // Legacy algorithm parallel tracking (for comparison mode only)
   uint32_t legacy_error_points = 0;
   uint8_t legacy_weight_percent = WEIGHT_FULL;
   double legacy_ack_throttle_factor = 1.0;
+
+  // Returns true if we have recent, valid sender telemetry to use for quality evaluation.
+  // When false, the algorithm falls back to receiver-only metrics (bandwidth + packet loss).
+  bool has_valid_sender_telemetry(time_t current_time) const {
+    // Must have received at least one keepalive with connection info
+    if (last_keepalive == 0) {
+      return false;
+    }
+    // Telemetry must be recent (within staleness threshold)
+    if ((current_time - last_keepalive) > KEEPALIVE_STALENESS_THRESHOLD) {
+      return false;
+    }
+    // Must have meaningful data (at least RTT or window info)
+    return (rtt_ms > 0 || window > 0);
+  }
 };
 
 } // namespace srtla

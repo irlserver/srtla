@@ -10,6 +10,30 @@ extern "C" {
 #include "../common.h"
 }
 
+// ============================================================================
+// Quality Evaluation Algorithm
+// ============================================================================
+// This module evaluates connection quality using an adaptive approach:
+//
+// 1. RECEIVER-SIDE METRICS (always used):
+//    - Bandwidth: Measured throughput compared to expected/median
+//    - Packet loss: Ratio of lost packets to total received
+//
+// 2. SENDER TELEMETRY (when available):
+//    - RTT: Round-trip time and jitter from sender's keepalive packets
+//    - NAK rate: Retransmission requests from sender's perspective
+//    - Window utilization: Congestion indicator from sender's flow control
+//    - Bitrate validation: Cross-check sender vs receiver measurements
+//
+// When sender telemetry is NOT available (e.g., older clients that don't send
+// connection_info_t in keepalives), the algorithm falls back to receiver-only
+// metrics. This is detected via ConnectionStats::has_valid_sender_telemetry().
+//
+// The result is error points that determine connection weight and ACK throttle
+// factor, which indirectly influences load balancing by affecting the sender's
+// connection selection algorithm.
+// ============================================================================
+
 namespace srtla::quality {
 
 using srtla::connection::ConnectionGroupPtr;
@@ -140,9 +164,15 @@ double bandwidth_kbits_per_sec = 0.0;
 
         double performance_ratio = expected_kbits_per_sec > 0 ? metrics.bandwidth_kbits_per_sec / expected_kbits_per_sec : 0;
         
+        // Check if we have valid sender telemetry for enhanced evaluation
+        bool has_telemetry = conn->stats().has_valid_sender_telemetry(current_time);
+        
         // ====================================================================
-        // CONNECTION INFO ALGORITHM: Uses sender telemetry
+        // RECEIVER-SIDE METRICS (always applied)
+        // These are calculated from data we observe at the receiver.
         // ====================================================================
+        
+        // Bandwidth performance penalties
         if (performance_ratio < 0.3) {
             conn->stats().error_points += 40;
         } else if (performance_ratio < 0.5) {
@@ -153,6 +183,7 @@ double bandwidth_kbits_per_sec = 0.0;
             conn->stats().error_points += 5;
         }
 
+        // Packet loss penalties
         if (metrics.packet_loss_ratio > 0.20) {
             conn->stats().error_points += 40;
         } else if (metrics.packet_loss_ratio > 0.10) {
@@ -163,19 +194,37 @@ double bandwidth_kbits_per_sec = 0.0;
             conn->stats().error_points += 5;
         }
 
-        // Add RTT-based error points (Phase 1)
-        conn->stats().error_points += calculate_rtt_error_points(conn->stats(), current_time);
+        // ====================================================================
+        // SENDER TELEMETRY METRICS (only when available)
+        // These come from connection_info_t in keepalive packets from the sender.
+        // When not available, we skip these and rely only on receiver-side metrics.
+        // ====================================================================
+        uint32_t telemetry_error_points = 0;
+        if (has_telemetry) {
+            // RTT-based error points
+            telemetry_error_points += calculate_rtt_error_points(conn->stats(), current_time);
+            
+            // NAK rate error points (sender's view of retransmissions)
+            uint64_t packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
+            telemetry_error_points += calculate_nak_error_points(conn->stats(), packets_diff);
+            
+            // Window utilization error points (congestion indicator)
+            telemetry_error_points += calculate_window_error_points(conn->stats());
+            
+            // Validate bitrate consistency between sender and receiver
+            double receiver_bitrate_bps = metrics.bandwidth_kbits_per_sec * 125.0;  // kbits to bytes
+            validate_bitrate(conn->stats(), receiver_bitrate_bps, &conn->address());
+            
+            conn->stats().error_points += telemetry_error_points;
+        }
         
-        // Add NAK rate error points (Phase 2)
-        uint64_t packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
-        conn->stats().error_points += calculate_nak_error_points(conn->stats(), packets_diff);
-        
-        // Add window utilization error points (Phase 3)
-        conn->stats().error_points += calculate_window_error_points(conn->stats());
-        
-        // Validate bitrate (Phase 4 - logging only)
-        double receiver_bitrate_bps = metrics.bandwidth_kbits_per_sec * 125.0;  // kbits to bytes
-        validate_bitrate(conn->stats(), receiver_bitrate_bps, &conn->address());
+        // Log evaluation mode for clarity
+        spdlog::debug("  [{}:{}] [Group: {}] Evaluation mode: {} (telemetry points: {})",
+                      print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                      port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                      static_cast<void *>(group.get()),
+                      has_telemetry ? "full (receiver + sender telemetry)" : "receiver-only (no sender telemetry)",
+                      telemetry_error_points);
 
         conn->stats().nack_count = 0;
 
