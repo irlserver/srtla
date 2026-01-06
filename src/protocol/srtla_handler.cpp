@@ -440,7 +440,7 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         // No connection info in keepalive packet - quality evaluation will fall back
         // to receiver-only metrics (bandwidth + packet loss) for this connection.
         // This happens when the sender doesn't support extended keepalives.
-        spdlog::debug(
+        spdlog::trace(
             "  [{}:{}] [Group: {}] Keepalive without sender telemetry - "
             "quality evaluation will use receiver-only metrics",
             print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
