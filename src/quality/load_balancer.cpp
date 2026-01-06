@@ -82,6 +82,21 @@ void LoadBalancer::adjust_weights(ConnectionGroupPtr group, time_t current_time)
             double absolute_quality = static_cast<double>(conn->stats().weight_percent) / WEIGHT_FULL;
             double relative_quality = max_weight > 0 ? static_cast<double>(conn->stats().weight_percent) / max_weight : 0.0;
             double new_throttle = std::min(absolute_quality, relative_quality);
+            
+            // Recovery boost: ONLY for connections with sender telemetry (extended keepalives).
+            // If a connection is heavily throttled but has improved (error points dropped),
+            // give it a boost to help it recover from the feedback loop.
+            // Legacy senders don't get this boost since we rely on bandwidth as primary indicator.
+            bool has_recent_telemetry = conn->stats().has_valid_sender_telemetry(current_time);
+            if (has_recent_telemetry && old_throttle < 0.5 && conn->stats().error_points < 15) {
+                double recovery_boost = 0.15; // Boost throttle by 15%
+                new_throttle = std::min(new_throttle + recovery_boost, 0.6);
+                spdlog::debug("[{}:{}] Applying recovery boost (telemetry-based): error_points={}, boosted throttle {:.2f} -> {:.2f}",
+                              print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                              port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                              conn->stats().error_points, new_throttle - recovery_boost, new_throttle);
+            }
+            
             new_throttle = std::max(MIN_ACK_RATE, new_throttle);
 
             spdlog::debug("[{}:{}] Throttle calculation: weight={}, max_weight={}, absolute={:.2f}, relative={:.2f}, new_throttle={:.2f}, old_throttle={:.2f}",

@@ -100,6 +100,13 @@ struct ConnectionStats {
 
   uint32_t sender_bitrate_bps = 0;
 
+  // Sender capability detection
+  // Once set to true, remains true for the lifetime of the connection.
+  // This allows us to distinguish senders with extended keepalive support
+  // from legacy senders, even when the connection is actively transmitting
+  // (and thus not sending keepalives).
+  bool sender_supports_extended_keepalives = false;
+
   // Legacy algorithm parallel tracking (for comparison mode only)
   uint32_t legacy_error_points = 0;
   uint8_t legacy_weight_percent = WEIGHT_FULL;
@@ -118,6 +125,12 @@ struct ConnectionStats {
     }
     // Must have meaningful data (at least RTT or window info)
     return (rtt_ms > 0 || window > 0);
+  }
+  
+  // Returns true if the sender supports extended keepalives (capability detection).
+  // Unlike has_valid_sender_telemetry(), this persists even when connection is active.
+  bool supports_extended_keepalives() const {
+    return sender_supports_extended_keepalives;
   }
 };
 

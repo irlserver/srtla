@@ -164,7 +164,8 @@ double bandwidth_kbits_per_sec = 0.0;
 
         double performance_ratio = expected_kbits_per_sec > 0 ? metrics.bandwidth_kbits_per_sec / expected_kbits_per_sec : 0;
         
-        // Check if we have valid sender telemetry for enhanced evaluation
+        // Check sender capabilities and current telemetry status
+        bool supports_ext_keepalives = conn->stats().supports_extended_keepalives();
         bool has_telemetry = conn->stats().has_valid_sender_telemetry(current_time);
         
         // ====================================================================
@@ -173,14 +174,39 @@ double bandwidth_kbits_per_sec = 0.0;
         // ====================================================================
         
         // Bandwidth performance penalties
-        if (performance_ratio < 0.3) {
-            conn->stats().error_points += 40;
-        } else if (performance_ratio < 0.5) {
-            conn->stats().error_points += 25;
-        } else if (performance_ratio < 0.7) {
-            conn->stats().error_points += 15;
-        } else if (performance_ratio < 0.85) {
-            conn->stats().error_points += 5;
+        // IMPORTANT: For senders that support extended keepalives, apply lighter penalties
+        // to prevent positive feedback loop with ACK throttling. The feedback loop:
+        // low bandwidth → throttled → client uses it less → bandwidth drops further →
+        // more penalties → more throttling → permanent 0 bandwidth.
+        //
+        // We use the persistent "supports_extended_keepalives" flag (not the transient
+        // "has_telemetry" status) to ensure consistent treatment whether the connection
+        // is currently active (not sending keepalives) or idle (sending keepalives).
+        //
+        // For legacy senders, keep aggressive penalties since bandwidth is our only indicator.
+        if (supports_ext_keepalives) {
+            // Lighter penalties for extended-keepalive-capable senders
+            // (rely more on telemetry metrics when available)
+            if (performance_ratio < 0.3) {
+                conn->stats().error_points += 10;  // Reduced from 40
+            } else if (performance_ratio < 0.5) {
+                conn->stats().error_points += 7;   // Reduced from 25
+            } else if (performance_ratio < 0.7) {
+                conn->stats().error_points += 4;   // Reduced from 15
+            } else if (performance_ratio < 0.85) {
+                conn->stats().error_points += 2;   // Reduced from 5
+            }
+        } else {
+            // Original penalties for legacy senders (bandwidth is primary indicator)
+            if (performance_ratio < 0.3) {
+                conn->stats().error_points += 40;
+            } else if (performance_ratio < 0.5) {
+                conn->stats().error_points += 25;
+            } else if (performance_ratio < 0.7) {
+                conn->stats().error_points += 15;
+            } else if (performance_ratio < 0.85) {
+                conn->stats().error_points += 5;
+            }
         }
 
         // Packet loss penalties

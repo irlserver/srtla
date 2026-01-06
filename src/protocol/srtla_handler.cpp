@@ -344,6 +344,12 @@ void SRTLAHandler::update_connection_telemetry(const ConnectionPtr &conn,
                                                time_t current_time) {
     auto &stats = conn->stats();
     
+    // Mark that this sender supports extended keepalives
+    // This flag persists for the lifetime of the connection, allowing us to
+    // distinguish extended-keepalive-capable senders from legacy senders,
+    // even when the connection is actively transmitting (and not sending keepalives).
+    stats.sender_supports_extended_keepalives = true;
+    
     // Update RTT with history
     update_rtt_history(stats, info.rtt_ms);
     
