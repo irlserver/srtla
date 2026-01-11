@@ -58,5 +58,7 @@ target_compile_features(srtla_send PRIVATE cxx_std_17)
 #target_compile_options(srtla_send PRIVATE -Wall -Wextra)
 target_compile_definitions(srtla_send PUBLIC VERSION="${CMAKE_PROJECT_VERSION}")
 
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
 install(TARGETS srtla_rec srtla_send RUNTIME DESTINATION bin)
