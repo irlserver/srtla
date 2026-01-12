@@ -1,6 +1,7 @@
 #include "network_utils.h"
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -8,6 +9,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <stdexcept>
 
 #include <spdlog/spdlog.h>
 
@@ -30,10 +32,21 @@ int NetworkUtils::epoll_remove(int epoll_fd, int socket_fd) {
 }
 
 uint16_t NetworkUtils::get_local_port(int socket_fd) {
-    struct sockaddr_in6 local_addr {};
+    struct sockaddr_storage local_addr {};
     socklen_t len = sizeof(local_addr);
-    getsockname(socket_fd, reinterpret_cast<struct sockaddr *>(&local_addr), &len);
-    return ntohs(local_addr.sin6_port);
+    if (getsockname(socket_fd, reinterpret_cast<struct sockaddr *>(&local_addr), &len) != 0) {
+        spdlog::error("getsockname failed for socket {}: {}", socket_fd, strerror(errno));
+        return 0;
+    }
+
+    if (local_addr.ss_family == AF_INET) {
+        return ntohs(reinterpret_cast<struct sockaddr_in *>(&local_addr)->sin_port);
+    } else if (local_addr.ss_family == AF_INET6) {
+        return ntohs(reinterpret_cast<struct sockaddr_in6 *>(&local_addr)->sin6_port);
+    }
+
+    spdlog::error("Unknown address family {} for socket {}", local_addr.ss_family, socket_fd);
+    return 0;
 }
 
 int NetworkUtils::resolve_srt_address(const char *host,
@@ -162,9 +175,20 @@ int NetworkUtils::constant_time_compare(const void *a, const void *b, int length
 
 void NetworkUtils::get_random_bytes(char *buffer, size_t size) {
     std::ifstream random("/dev/urandom", std::ios::in | std::ios::binary);
-    random.read(buffer, static_cast<std::streamsize>(size));
-    if (!random) {
-        spdlog::error("Failed to read {} bytes from /dev/urandom", size);
+    if (!random.is_open()) {
+        spdlog::error("Failed to open /dev/urandom");
+        throw std::runtime_error("Failed to open /dev/urandom");
+    }
+
+    size_t total_read = 0;
+    while (total_read < size) {
+        random.read(buffer + total_read, static_cast<std::streamsize>(size - total_read));
+        std::streamsize bytes_read = random.gcount();
+        if (bytes_read <= 0) {
+            spdlog::error("Failed to read from /dev/urandom: got {} of {} bytes", total_read, size);
+            throw std::runtime_error("Failed to read random bytes from /dev/urandom");
+        }
+        total_read += static_cast<size_t>(bytes_read);
     }
 }
 
