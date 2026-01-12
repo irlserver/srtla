@@ -285,8 +285,13 @@ int SRTLAHandler::register_connection(const struct sockaddr_storage *addr, const
 void SRTLAHandler::register_packet(ConnectionGroupPtr group,
                                    const ConnectionPtr &conn,
                                    int32_t sn) {
-    conn->set_recv_index(conn->recv_index() + 1);
-    conn->recv_log()[conn->recv_index() - 1] = htobe32(sn);
+    int next_idx = conn->recv_index() + 1;
+    if (next_idx <= 0 || next_idx > static_cast<int>(RECV_ACK_INT)) {
+        // Defensive reset if index is corrupted or out of bounds
+        next_idx = 1;
+    }
+    conn->set_recv_index(next_idx);
+    conn->recv_log()[static_cast<std::size_t>(next_idx - 1)] = htobe32(sn);
 
     uint64_t current_ms = 0;
     get_ms(&current_ms);
