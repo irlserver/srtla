@@ -25,7 +25,7 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
     }
 
     char buf[MTU];
-    int n = recv(group->srt_socket(), &buf, MTU, 0);
+    int n = recv(group->srt_socket(), buf, MTU, 0);
     if (n < SRT_MIN_LEN) {
         spdlog::error("[Group: {}] Failed to read the SRT sock, terminating the group",
                       static_cast<void *>(group.get()));
