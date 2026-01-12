@@ -176,6 +176,14 @@ int main(int argc, char **argv) {
 
     std::size_t group_cnt;
     for (int i = 0; i < eventcnt; i++) {
+      // Snapshot the current group count before processing. Both
+      // srtla_handler.process_packet() and srt_handler.handle_srt_data() may
+      // remove ConnectionGroup instances via registry operations (e.g.,
+      // registry.find_group_by_id() returning nullptr after removal). If the
+      // group count shrinks, events[i].data.ptr pointers from subsequent
+      // iterations may reference freed memory. We detect this by comparing
+      // registry.groups().size() with group_cnt and break early to avoid
+      // iterator/pointer invalidation.
       group_cnt = registry.groups().size();
       if (events[i].data.ptr == nullptr) {
         srtla_handler.process_packet(ts);
