@@ -30,10 +30,10 @@ ConnectionGroupPtr wait_group_by_id(connection::ConnectionRegistry &registry,
     const auto deadline = clock::now() + std::chrono::milliseconds(max_ms);
 
     while (clock::now() < deadline) {
-        if (auto group = registry.find_group_by_id(reinterpret_cast<const char *>(const_cast<uint8_t *>(id)))) {
+        if (auto group = registry.find_group_by_id(reinterpret_cast<const char *>(id))) {
             return group;
         }
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     return nullptr;
 }
@@ -69,7 +69,7 @@ void SRTLAHandler::process_packet(time_t ts) {
     struct sockaddr_storage srtla_addr {};
     socklen_t len = kAddrLen;
 
-    int n = recvfrom(srtla_socket_, &buf, MTU, 0, reinterpret_cast<struct sockaddr *>(&srtla_addr), &len);
+    int n = recvfrom(srtla_socket_, buf, MTU, 0, reinterpret_cast<struct sockaddr *>(&srtla_addr), &len);
     if (n < 0) {
         spdlog::error("Failed to read an srtla packet {}", strerror(errno));
         return;
