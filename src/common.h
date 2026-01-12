@@ -1,5 +1,8 @@
+#pragma once
+
 /*
     srtla_rec - SRT transport proxy with link aggregation
+
     Copyright (C) 2020-2021 BELABOX project
     Copyright (C) 2024 IRLToolkit Inc.
     Copyright (C) 2024 OpenIRL
@@ -19,34 +22,37 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <stdint.h>
+#include <time.h>
+
 #define MTU 1500
 
-#define SRT_TYPE_HANDSHAKE   0x8000
-#define SRT_TYPE_ACK         0x8002
-#define SRT_TYPE_NAK         0x8003
-#define SRT_TYPE_SHUTDOWN    0x8005
+#define SRT_TYPE_HANDSHAKE 0x8000
+#define SRT_TYPE_ACK 0x8002
+#define SRT_TYPE_NAK 0x8003
+#define SRT_TYPE_SHUTDOWN 0x8005
 
 #define SRTLA_TYPE_KEEPALIVE 0x9000
-#define SRTLA_TYPE_ACK       0x9100
-#define SRTLA_TYPE_REG1      0x9200
-#define SRTLA_TYPE_REG2      0x9201
-#define SRTLA_TYPE_REG3      0x9202
-#define SRTLA_TYPE_REG_ERR   0x9210
-#define SRTLA_TYPE_REG_NGP   0x9211
-#define SRTLA_TYPE_REG_NAK   0x9212
+#define SRTLA_TYPE_ACK 0x9100
+#define SRTLA_TYPE_REG1 0x9200
+#define SRTLA_TYPE_REG2 0x9201
+#define SRTLA_TYPE_REG3 0x9202
+#define SRTLA_TYPE_REG_ERR 0x9210
+#define SRTLA_TYPE_REG_NGP 0x9211
+#define SRTLA_TYPE_REG_NAK 0x9212
 
-#define SRTLA_EXT_IRLTK_CIP_REQ 0xA000
-#define SRTLA_EXT_IRLTK_CIP_RES 0xA001
+// Extended KEEPALIVE with Connection Info
+#define SRTLA_KEEPALIVE_MAGIC 0xC01F
+#define SRTLA_KEEPALIVE_STD_LEN 10
+#define SRTLA_KEEPALIVE_EXT_LEN 38
+#define SRTLA_KEEPALIVE_EXT_VERSION 0x0001
 
-#define SRT_MIN_LEN          16
+#define SRT_MIN_LEN 16
 
-#define SRTLA_ID_LEN         256
-#define SRTLA_TYPE_REG1_LEN  (2 + (SRTLA_ID_LEN))
-#define SRTLA_TYPE_REG2_LEN  (2 + (SRTLA_ID_LEN))
-#define SRTLA_TYPE_REG3_LEN  2
-
-#define SRTLA_EXT_IRLTK_CIP_REQ_LEN 2
-#define SRTLA_EXT_IRLTK_CIP_RES_LEN (2 + sizeof(srtla_pkt_irltk_cip_res))
+#define SRTLA_ID_LEN 256
+#define SRTLA_TYPE_REG1_LEN (2 + (SRTLA_ID_LEN))
+#define SRTLA_TYPE_REG2_LEN (2 + (SRTLA_ID_LEN))
+#define SRTLA_TYPE_REG3_LEN 2
 
 #define SEND_BUF_SIZE (100 * 1024 * 1024)
 #define RECV_BUF_SIZE (100 * 1024 * 1024)
@@ -70,13 +76,18 @@ typedef struct __attribute__((__packed__)) {
   uint32_t handshake_type;
   uint32_t source_id;
   uint32_t syn_cookie;
-  char     peer_ip[16];
+  char peer_ip[16];
 } srt_handshake_t;
 
+// Extended KEEPALIVE Connection Info structure
 typedef struct __attribute__((__packed__)) {
-  uint8_t address_family;
-  uint8_t address[16];
-} srtla_ext_irltk_cip_res;
+  uint32_t conn_id;
+  int32_t window;
+  int32_t in_flight;
+  uint32_t rtt_ms;
+  uint32_t nak_count;
+  uint32_t bitrate_bytes_per_sec;
+} connection_info_t;
 
 int get_seconds(time_t *s);
 int get_ms(uint64_t *ms);
@@ -95,3 +106,7 @@ int is_srtla_keepalive(void *pkt, int len);
 int is_srtla_reg1(void *pkt, int len);
 int is_srtla_reg2(void *pkt, int len);
 int is_srtla_reg3(void *pkt, int len);
+
+// Extended KEEPALIVE parsing function
+int parse_keepalive_conn_info(const uint8_t *buf, int len,
+                              connection_info_t *info);
