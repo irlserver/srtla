@@ -70,6 +70,10 @@ void ConnectionGroup::write_socket_info_file() const {
 
     auto client_addresses = get_client_addresses();
     std::ofstream out(file_name);
+    if (!out.is_open()) {
+        spdlog::error("[Group: {}] Failed to open socket info file: {}", static_cast<const void *>(this), file_name);
+        return;
+    }
     for (const auto &addr : client_addresses) {
         auto *mutable_addr = const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&addr));
         out << print_addr(mutable_addr) << std::endl;
