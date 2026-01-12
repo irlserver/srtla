@@ -10,6 +10,7 @@ namespace srtla::quality {
 struct QualityMetrics {
     double bandwidth_kbits_per_sec = 0.0;
     double packet_loss_ratio = 0.0;
+    uint64_t packets_diff = 0;
     uint32_t error_points = 0;
 };
 

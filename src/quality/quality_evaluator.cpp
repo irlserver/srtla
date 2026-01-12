@@ -69,10 +69,11 @@ group->set_total_target_bandwidth(0);
 
 double bandwidth_kbits_per_sec = 0.0;
         double packet_loss_ratio = 0.0;
-        
+        uint64_t packets_diff = 0;
+
         if (time_diff_ms > 0) {
             uint64_t bytes_diff = conn->stats().bytes_received - conn->stats().last_bytes_received;
-            uint64_t packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
+            packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
             uint32_t lost_diff = conn->stats().packets_lost - conn->stats().last_packets_lost;
 
             double seconds = static_cast<double>(time_diff_ms) / 1000.0;
@@ -86,12 +87,9 @@ double bandwidth_kbits_per_sec = 0.0;
             group->set_total_target_bandwidth(group->total_target_bandwidth() + static_cast<uint64_t>(bandwidth_bytes_per_sec));
         }
 
-        bandwidth_info.push_back({bandwidth_kbits_per_sec, packet_loss_ratio, 0});
-
-        conn->stats().last_bytes_received = conn->stats().bytes_received;
-        conn->stats().last_packets_received = conn->stats().packets_received;
-        conn->stats().last_packets_lost = conn->stats().packets_lost;
-        conn->stats().last_eval_time = current_ms;
+        // Store packets_diff for NAK rate calculation in second loop
+        // Note: last_* values are updated AFTER all calculations in the second loop
+        bandwidth_info.push_back({bandwidth_kbits_per_sec, packet_loss_ratio, packets_diff, 0});
     }
 
     if (bandwidth_info.empty()) {
@@ -229,20 +227,26 @@ double bandwidth_kbits_per_sec = 0.0;
         if (has_telemetry) {
             // RTT-based error points
             telemetry_error_points += calculate_rtt_error_points(conn->stats(), current_time);
-            
+
             // NAK rate error points (sender's view of retransmissions)
-            uint64_t packets_diff = conn->stats().packets_received - conn->stats().last_packets_received;
-            telemetry_error_points += calculate_nak_error_points(conn->stats(), packets_diff);
-            
+            // Use packets_diff from first loop to avoid always-zero bug
+            telemetry_error_points += calculate_nak_error_points(conn->stats(), metrics.packets_diff);
+
             // Window utilization error points (congestion indicator)
             telemetry_error_points += calculate_window_error_points(conn->stats());
-            
+
             // Validate bitrate consistency between sender and receiver
             double receiver_bitrate_bps = metrics.bandwidth_kbits_per_sec * 125.0;  // kbits to bytes
             validate_bitrate(conn->stats(), receiver_bitrate_bps, &conn->address());
-            
+
             conn->stats().error_points += telemetry_error_points;
         }
+
+        // Update last_* values AFTER all calculations for this evaluation cycle
+        conn->stats().last_bytes_received = conn->stats().bytes_received;
+        conn->stats().last_packets_received = conn->stats().packets_received;
+        conn->stats().last_packets_lost = conn->stats().packets_lost;
+        conn->stats().last_eval_time = current_ms;
         
         // Log evaluation mode for clarity
         spdlog::debug("  [{}:{}] [Group: {}] Evaluation mode: {} (telemetry points: {})",
