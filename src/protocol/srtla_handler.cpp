@@ -1,9 +1,13 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "srtla_handler.h"
 
 #include <arpa/inet.h>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <sys/socket.h>
 #include <thread>
 
 #include <spdlog/spdlog.h>
@@ -64,30 +68,62 @@ SRTLAHandler::SRTLAHandler(int srtla_socket,
       srt_handler_(srt_handler),
       metrics_(metrics_collector) {}
 
-void SRTLAHandler::process_packet(time_t ts) {
-    char buf[MTU] = {};
-    struct sockaddr_storage srtla_addr {};
-    socklen_t len = kAddrLen;
+int SRTLAHandler::process_packets(time_t ts) {
+    // Pre-allocate buffers for batch receive
+    struct iovec iovecs[RECV_BATCH_SIZE];
+    struct mmsghdr msgs[RECV_BATCH_SIZE];
+    char bufs[RECV_BATCH_SIZE][MTU];
+    struct sockaddr_storage addrs[RECV_BATCH_SIZE];
 
-    int n = recvfrom(srtla_socket_, buf, MTU, 0, reinterpret_cast<struct sockaddr *>(&srtla_addr), &len);
-    if (n < 0) {
-        spdlog::error("Failed to read an srtla packet {}", strerror(errno));
+    // Initialize message headers
+    for (int i = 0; i < RECV_BATCH_SIZE; i++) {
+        iovecs[i].iov_base = bufs[i];
+        iovecs[i].iov_len = MTU;
+        msgs[i].msg_hdr.msg_name = &addrs[i];
+        msgs[i].msg_hdr.msg_namelen = kAddrLen;
+        msgs[i].msg_hdr.msg_iov = &iovecs[i];
+        msgs[i].msg_hdr.msg_iovlen = 1;
+        msgs[i].msg_hdr.msg_control = nullptr;
+        msgs[i].msg_hdr.msg_controllen = 0;
+        msgs[i].msg_hdr.msg_flags = 0;
+    }
+
+    // Receive multiple packets in one syscall
+    int num_msgs = recvmmsg(srtla_socket_, msgs, RECV_BATCH_SIZE, MSG_DONTWAIT, nullptr);
+    if (num_msgs < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            spdlog::error("Failed to read srtla packets: {}", strerror(errno));
+        }
+        return 0;
+    }
+
+    // Process each received packet
+    for (int i = 0; i < num_msgs; i++) {
+        int len = static_cast<int>(msgs[i].msg_len);
+        if (len > 0) {
+            process_single_packet(bufs[i], len, &addrs[i], ts);
+        }
+    }
+
+    return num_msgs;
+}
+
+void SRTLAHandler::process_single_packet(const char *buf, int n,
+                                          const struct sockaddr_storage *srtla_addr,
+                                          time_t ts) {
+    if (is_srtla_reg1(const_cast<char *>(buf), n)) {
+        register_group(srtla_addr, buf, ts);
         return;
     }
 
-    if (is_srtla_reg1(buf, n)) {
-        register_group(&srtla_addr, buf, ts);
-        return;
-    }
-
-    if (is_srtla_reg2(buf, n)) {
-        register_connection(&srtla_addr, buf, ts);
+    if (is_srtla_reg2(const_cast<char *>(buf), n)) {
+        register_connection(srtla_addr, buf, ts);
         return;
     }
 
     ConnectionGroupPtr group;
     ConnectionPtr conn;
-    registry_.find_by_address(&srtla_addr, group, conn);
+    registry_.find_by_address(srtla_addr, group, conn);
     if (!group || !conn) {
         return;
     }
@@ -103,8 +139,8 @@ void SRTLAHandler::process_packet(time_t ts) {
                      static_cast<void *>(group.get()));
     }
 
-    if (is_srtla_keepalive(buf, n)) {
-        handle_keepalive(group, conn, &srtla_addr, buf, n);
+    if (is_srtla_keepalive(const_cast<char *>(buf), n)) {
+        handle_keepalive(group, conn, srtla_addr, buf, n);
         return;
     }
 
@@ -112,7 +148,7 @@ void SRTLAHandler::process_packet(time_t ts) {
         return;
     }
 
-    group->set_last_address(srtla_addr);
+    group->set_last_address(*srtla_addr);
     metrics_.on_packet_received(conn, static_cast<size_t>(n));
 
     if (is_srt_nak_packet(buf, n)) {
@@ -139,7 +175,7 @@ void SRTLAHandler::process_packet(time_t ts) {
         }
     }
 
-    int32_t sn = get_srt_sn(buf, n);
+    int32_t sn = get_srt_sn(const_cast<char *>(buf), n);
     if (sn >= 0) {
         register_packet(group, conn, sn);
     }
