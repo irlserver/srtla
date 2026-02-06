@@ -1,0 +1,27 @@
+src/protocol/srt_handler.cpp
+  6e9a8b50270985d4 36-38,43,53
+src/common.h
+  6e9a8b50270985d4 103
+src/common.c
+  6e9a8b50270985d4 105-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "2655cb5c562b25a3a58866a4a9761434092a91eb",
+  "prompts": {
+    "6e9a8b50270985d4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b0246da-2f4b-480d-8c4d-d964e60d8b8d",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "datagutt <datagutt@lekanger.no>",
+      "messages": [],
+      "total_additions": 122,
+      "total_deletions": 45,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
