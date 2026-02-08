@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
       // iterator/pointer invalidation.
       group_cnt = registry.groups().size();
       if (events[i].data.ptr == nullptr) {
-        srtla_handler.process_packet(ts);
+        srtla_handler.process_packets(ts);
       } else {
         auto raw_group = static_cast<srtla::connection::ConnectionGroup *>(
             events[i].data.ptr);
