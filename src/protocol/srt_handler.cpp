@@ -33,12 +33,14 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
         return;
     }
 
-    if (is_srt_ack(buf, n)) {
+    // Broadcast ACKs and NAKs to all connections to ensure they reach the
+    // sender even if some connections are dead. Other packets go to last_address.
+    if (is_srt_ack(buf, n) || is_srt_nak(buf, n)) {
         for (auto &conn : group->connections()) {
             int ret = sendto(srtla_socket_, &buf, n, 0,
                              reinterpret_cast<const struct sockaddr *>(&conn->address()), sizeof(struct sockaddr_storage));
             if (ret != n) {
-                spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT ack",
+                spdlog::error("[{}:{}] [Group: {}] Failed to send SRT packet",
                               print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
                               port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
                               static_cast<void *>(group.get()));
@@ -48,7 +50,7 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
         int ret = sendto(srtla_socket_, &buf, n, 0,
                          reinterpret_cast<const struct sockaddr *>(&group->last_address()), sizeof(struct sockaddr_storage));
         if (ret != n) {
-            spdlog::error("[{}:{}] [Group: {}] Failed to send the SRT packet",
+            spdlog::error("[{}:{}] [Group: {}] Failed to send SRT packet",
                           print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&group->last_address()))),
                           port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&group->last_address()))),
                           static_cast<void *>(group.get()));

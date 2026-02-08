@@ -102,6 +102,10 @@ int is_srt_ack(void *pkt, int n) {
   return get_srt_type(pkt, n) == SRT_TYPE_ACK;
 }
 
+int is_srt_nak(void *pkt, int n) {
+  return get_srt_type(pkt, n) == SRT_TYPE_NAK;
+}
+
 int is_srtla_keepalive(void *pkt, int n) {
   return get_srt_type(pkt, n) == SRTLA_TYPE_KEEPALIVE;
 }
