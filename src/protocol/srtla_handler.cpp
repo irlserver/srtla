@@ -4,11 +4,9 @@
 #include "srtla_handler.h"
 
 #include <arpa/inet.h>
-#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <sys/socket.h>
-#include <thread>
 
 #include <spdlog/spdlog.h>
 
@@ -27,19 +25,9 @@ using srtla::utils::NakDeduplicator;
 namespace {
 constexpr socklen_t kAddrLen = sizeof(struct sockaddr_storage);
 
-ConnectionGroupPtr wait_group_by_id(connection::ConnectionRegistry &registry,
-                                     const uint8_t *id,
-                                     int max_ms = 200) {
-    using clock = std::chrono::steady_clock;
-    const auto deadline = clock::now() + std::chrono::milliseconds(max_ms);
-
-    while (clock::now() < deadline) {
-        if (auto group = registry.find_group_by_id(reinterpret_cast<const char *>(id))) {
-            return group;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    return nullptr;
+ConnectionGroupPtr find_group_by_id(connection::ConnectionRegistry &registry,
+                                     const uint8_t *id) {
+    return registry.find_group_by_id(reinterpret_cast<const char *>(id));
 }
 
 bool is_srt_nak_packet(const char *pkt, int length) {
@@ -252,7 +240,7 @@ int SRTLAHandler::register_group(const struct sockaddr_storage *addr, const char
 
 int SRTLAHandler::register_connection(const struct sockaddr_storage *addr, const char *buffer, time_t ts) {
     const uint8_t *id = reinterpret_cast<const uint8_t *>(buffer + 2);
-    auto group = wait_group_by_id(registry_, id);
+    auto group = find_group_by_id(registry_, id);
     if (!group) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_NGP);
         sendto(srtla_socket_, &header, sizeof(header), 0,
