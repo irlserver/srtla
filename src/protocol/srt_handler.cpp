@@ -2,8 +2,15 @@
 #define _GNU_SOURCE
 #endif
 #include "srt_handler.h"
+#include "pad_sendto.h"
 
 #include <arpa/inet.h>
+
+static inline int is_srt_handshake(const void *pkt, int n) {
+    if (n < 16) return 0;
+    const unsigned char *p = (const unsigned char *)pkt;
+    return (p[0] == 0x80) && (p[1] == 0x00);
+}
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -40,7 +47,7 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
 
     // Broadcast ACKs and NAKs to all connections to ensure they reach the
     // sender even if some connections are dead. Other packets go to last_address.
-    if (is_srt_ack(buf, n) || is_srt_nak(buf, n)) {
+    if (is_srt_ack(buf, n) || is_srt_nak(buf, n) || is_srt_handshake(buf, n)) {
         const auto &connections = group->connections();
         size_t num_conns = connections.size();
 
@@ -80,7 +87,7 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
                          static_cast<void *>(group.get()), sent, msg_count);
         }
     } else {
-        int ret = sendto(srtla_socket_, &buf, n, 0,
+        int ret = pad_sendto(srtla_socket_, &buf, n, 0,
                          reinterpret_cast<const struct sockaddr *>(&group->last_address()), sizeof(struct sockaddr_storage));
         if (ret != n) {
             spdlog::error("[{}:{}] [Group: {}] Failed to send SRT packet",

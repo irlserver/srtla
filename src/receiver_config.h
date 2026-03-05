@@ -19,8 +19,8 @@ inline constexpr int MAX_CONNS_PER_GROUP = 16;
 inline constexpr int MAX_GROUPS = 200;
 
 inline constexpr int CLEANUP_PERIOD = 3;
-inline constexpr int GROUP_TIMEOUT = 4;
-inline constexpr int CONN_TIMEOUT = 4;
+inline constexpr int GROUP_TIMEOUT = 30;
+inline constexpr int CONN_TIMEOUT = 15;
 
 inline constexpr int KEEPALIVE_PERIOD = 1;
 inline constexpr int RECOVERY_CHANCE_PERIOD = 5;

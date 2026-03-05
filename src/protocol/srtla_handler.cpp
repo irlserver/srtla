@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "srtla_handler.h"
+#include "pad_sendto.h"
 
 #include <arpa/inet.h>
 #include <cmath>
@@ -175,7 +176,7 @@ void SRTLAHandler::process_single_packet(const char *buf, int n,
 
 void SRTLAHandler::send_keepalive(const ConnectionPtr &conn, time_t ts) {
     uint16_t pkt = htobe16(SRTLA_TYPE_KEEPALIVE);
-    int ret = sendto(srtla_socket_, &pkt, sizeof(pkt), 0,
+    int ret = pad_sendto(srtla_socket_, &pkt, sizeof(pkt), 0,
                      reinterpret_cast<const struct sockaddr *>(&conn->address()), kAddrLen);
     if (ret != sizeof(pkt)) {
         spdlog::error("[{}:{}] Failed to send keepalive packet",
@@ -191,7 +192,7 @@ void SRTLAHandler::send_keepalive(const ConnectionPtr &conn, time_t ts) {
 int SRTLAHandler::register_group(const struct sockaddr_storage *addr, const char *buffer, time_t ts) {
     if (registry_.groups().size() >= MAX_GROUPS) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
-        sendto(srtla_socket_, &header, sizeof(header), 0,
+        pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
         spdlog::error("[{}:{}] Group registration failed: Max groups reached",
                       print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
@@ -204,7 +205,7 @@ int SRTLAHandler::register_group(const struct sockaddr_storage *addr, const char
     registry_.find_by_address(addr, existing_group, existing_conn);
     if (existing_group) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
-        sendto(srtla_socket_, &header, sizeof(header), 0,
+        pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
         spdlog::error("[{}:{}] Group registration failed: Remote address already registered",
                       print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
@@ -221,7 +222,7 @@ int SRTLAHandler::register_group(const struct sockaddr_storage *addr, const char
     std::memcpy(out_buf, &header, sizeof(header));
     std::memcpy(out_buf + sizeof(header), group->id().data(), SRTLA_ID_LEN);
 
-    int ret = sendto(srtla_socket_, &out_buf, sizeof(out_buf), 0,
+    int ret = pad_sendto(srtla_socket_, &out_buf, sizeof(out_buf), 0,
                      reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
     if (ret != sizeof(out_buf)) {
         spdlog::error("[{}:{}] Group registration failed: Send error",
@@ -243,7 +244,7 @@ int SRTLAHandler::register_connection(const struct sockaddr_storage *addr, const
     auto group = find_group_by_id(registry_, id);
     if (!group) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_NGP);
-        sendto(srtla_socket_, &header, sizeof(header), 0,
+        pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
         spdlog::error("[{}:{}] Connection registration failed: No group found",
                       print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
@@ -256,7 +257,7 @@ int SRTLAHandler::register_connection(const struct sockaddr_storage *addr, const
     registry_.find_by_address(addr, tmp_group, conn);
     if (tmp_group && tmp_group != group) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
-        sendto(srtla_socket_, &header, sizeof(header), 0,
+        pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
         spdlog::error("[{}:{}] [Group: {}] Connection registration failed: Provided group ID mismatch",
                       print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
@@ -269,7 +270,7 @@ int SRTLAHandler::register_connection(const struct sockaddr_storage *addr, const
     if (!conn) {
         if (group->connections().size() >= MAX_CONNS_PER_GROUP) {
             uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
-            sendto(srtla_socket_, &header, sizeof(header), 0,
+            pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                    reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
             spdlog::error("[{}:{}] [Group: {}] Connection registration failed: Max group conns reached",
                           print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
@@ -283,7 +284,7 @@ int SRTLAHandler::register_connection(const struct sockaddr_storage *addr, const
     }
 
     uint16_t header = htobe16(SRTLA_TYPE_REG3);
-    int ret = sendto(srtla_socket_, &header, sizeof(header), 0,
+    int ret = pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                      reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
     if (ret != sizeof(header)) {
         spdlog::error("[{}:{}] [Group: {}] Connection registration failed: Socket send error",
@@ -341,7 +342,7 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
             ack.type = htobe32(SRTLA_TYPE_ACK << 16);
             std::memcpy(&ack.acks, conn->recv_log().data(), sizeof(uint32_t) * conn->recv_log().size());
 
-            int ret = sendto(srtla_socket_, &ack, sizeof(ack), 0,
+            int ret = pad_sendto(srtla_socket_, &ack, sizeof(ack), 0,
                              reinterpret_cast<const struct sockaddr *>(&conn->address()), kAddrLen);
             if (ret != sizeof(ack)) {
                 spdlog::error("[{}:{}] [Group: {}] Failed to send the SRTLA ACK",
@@ -479,7 +480,7 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
     }
     
     // Echo the keepalive back to the sender
-    int ret = sendto(srtla_socket_, buffer, length, 0,
+    int ret = pad_sendto(srtla_socket_, buffer, length, 0,
                      reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
     if (ret != length) {
         spdlog::error("[{}:{}] [Group: {}] Failed to send SRTLA Keepalive",
