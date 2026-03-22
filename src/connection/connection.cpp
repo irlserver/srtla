@@ -17,8 +17,6 @@ Connection::Connection(const struct sockaddr_storage &addr, time_t timestamp)
     stats_.last_packets_lost = 0;
     stats_.error_points = 0;
     stats_.weight_percent = WEIGHT_FULL;
-    stats_.last_ack_sent_time = 0;
-    stats_.ack_throttle_factor = 1.0;
     stats_.nack_count = 0;
 }
 

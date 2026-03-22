@@ -29,9 +29,8 @@ extern "C" {
 // connection_info_t in keepalives), the algorithm falls back to receiver-only
 // metrics. This is detected via ConnectionStats::has_valid_sender_telemetry().
 //
-// The result is error points that determine connection weight and ACK throttle
-// factor, which indirectly influences load balancing by affecting the sender's
-// connection selection algorithm.
+// The result is error points that determine connection weight, which is used
+// for quality assessment and logging purposes.
 // ============================================================================
 
 namespace srtla::quality {
@@ -172,10 +171,9 @@ double bandwidth_kbits_per_sec = 0.0;
         // ====================================================================
         
         // Bandwidth performance penalties
-        // IMPORTANT: For senders that support extended keepalives, apply lighter penalties
-        // to prevent positive feedback loop with ACK throttling. The feedback loop:
-        // low bandwidth → throttled → client uses it less → bandwidth drops further →
-        // more penalties → more throttling → permanent 0 bandwidth.
+        // For senders that support extended keepalives, apply lighter bandwidth
+        // penalties since we have more direct quality indicators (RTT, NAK rate,
+        // window utilization) available from sender telemetry.
         //
         // We use the persistent "supports_extended_keepalives" flag (not the transient
         // "has_telemetry" status) to ensure consistent treatment whether the connection
@@ -440,7 +438,7 @@ void QualityEvaluator::evaluate_connection_legacy(ConnectionPtr conn,
     // - Window utilization penalties
     // - Bitrate discrepancy validation
     
-    // Calculate legacy weight and throttle (same logic as connection info)
+    // Calculate legacy weight (same logic as connection info)
     if (conn->stats().legacy_error_points >= 40) {
         conn->stats().legacy_weight_percent = WEIGHT_CRITICAL;
     } else if (conn->stats().legacy_error_points >= 30) {
@@ -455,8 +453,6 @@ void QualityEvaluator::evaluate_connection_legacy(ConnectionPtr conn,
         conn->stats().legacy_weight_percent = WEIGHT_FULL;
     }
     
-    conn->stats().legacy_ack_throttle_factor = 
-        std::max(MIN_ACK_RATE, static_cast<double>(conn->stats().legacy_weight_percent) / 100.0);
 }
 
 } // namespace srtla::quality

@@ -318,45 +318,23 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
     conn->set_recv_index(next_idx);
     conn->recv_log()[static_cast<std::size_t>(next_idx - 1)] = htobe32(sn);
 
-    uint64_t current_ms = 0;
-    get_ms(&current_ms);
-
     if (conn->recv_index() == static_cast<int>(RECV_ACK_INT)) {
-        bool should_send = true;
-        if (conn->stats().ack_throttle_factor > 0.0f && conn->stats().ack_throttle_factor < 1.0) {
-            uint64_t min_interval = ACK_THROTTLE_INTERVAL / conn->stats().ack_throttle_factor;
-            if (conn->stats().last_ack_sent_time > 0 &&
-                current_ms < conn->stats().last_ack_sent_time + min_interval) {
-                should_send = false;
-                spdlog::trace("[{}:{}] [Group: {}] ACK throttled, next in {} ms (factor: {:.2f})",
-                              print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
-                              port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
-                              static_cast<void *>(group.get()),
-                              (conn->stats().last_ack_sent_time + min_interval) - current_ms,
-                              conn->stats().ack_throttle_factor);
-            }
-        }
+        srtla_ack_pkt ack {};
+        ack.type = htobe32(SRTLA_TYPE_ACK << 16);
+        std::memcpy(&ack.acks, conn->recv_log().data(), sizeof(uint32_t) * conn->recv_log().size());
 
-        if (should_send) {
-            srtla_ack_pkt ack {};
-            ack.type = htobe32(SRTLA_TYPE_ACK << 16);
-            std::memcpy(&ack.acks, conn->recv_log().data(), sizeof(uint32_t) * conn->recv_log().size());
-
-            int ret = pad_sendto(srtla_socket_, &ack, sizeof(ack), 0,
-                             reinterpret_cast<const struct sockaddr *>(&conn->address()), kAddrLen);
-            if (ret != sizeof(ack)) {
-                spdlog::error("[{}:{}] [Group: {}] Failed to send the SRTLA ACK",
-                              print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
-                              port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
-                              static_cast<void *>(group.get()));
-            } else {
-                conn->stats().last_ack_sent_time = current_ms;
-                spdlog::trace("[{}:{}] [Group: {}] Sent SRTLA ACK (throttle factor: {:.2f})",
-                              print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
-                              port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
-                              static_cast<void *>(group.get()),
-                              conn->stats().ack_throttle_factor);
-            }
+        int ret = pad_sendto(srtla_socket_, &ack, sizeof(ack), 0,
+                         reinterpret_cast<const struct sockaddr *>(&conn->address()), kAddrLen);
+        if (ret != sizeof(ack)) {
+            spdlog::error("[{}:{}] [Group: {}] Failed to send the SRTLA ACK",
+                          print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                          port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                          static_cast<void *>(group.get()));
+        } else {
+            spdlog::trace("[{}:{}] [Group: {}] Sent SRTLA ACK",
+                          print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                          port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
+                          static_cast<void *>(group.get()));
         }
 
         conn->set_recv_index(0);
@@ -444,25 +422,21 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         // ====================================================================
         int error_delta = static_cast<int>(conn->stats().error_points) - static_cast<int>(conn->stats().legacy_error_points);
         int weight_delta = static_cast<int>(conn->stats().weight_percent) - static_cast<int>(conn->stats().legacy_weight_percent);
-        double throttle_delta = conn->stats().ack_throttle_factor - conn->stats().legacy_ack_throttle_factor;
-        
+
         // Only log comparison if there's a meaningful difference (reduce spam)
         if (std::abs(weight_delta) >= 5 || std::abs(error_delta) >= 5) {
             spdlog::info(
-                "  [{}:{}] [ALGO_CMP] ConnInfo: Err={} W={}% T={:.2f} | "
-                "Legacy: Err={} W={}% T={:.2f} | "
-                "Delta: E={:+d} W={:+d}% T={:+.2f}",
+                "  [{}:{}] [ALGO_CMP] ConnInfo: Err={} W={}% | "
+                "Legacy: Err={} W={}% | "
+                "Delta: E={:+d} W={:+d}%",
                 print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
                 port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
                 conn->stats().error_points,
                 conn->stats().weight_percent,
-                conn->stats().ack_throttle_factor,
                 conn->stats().legacy_error_points,
                 conn->stats().legacy_weight_percent,
-                conn->stats().legacy_ack_throttle_factor,
                 error_delta,
-                weight_delta,
-                throttle_delta
+                weight_delta
             );
         }
 #endif

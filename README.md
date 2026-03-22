@@ -182,8 +182,6 @@ The following parameters can be adjusted to optimize behavior:
 - `KEEPALIVE_PERIOD`: Interval for keepalive packets during recovery (1 second)
 - `RECOVERY_CHANCE_PERIOD`: Period during which a connection can attempt to recover (5 seconds)
 - `CONN_QUALITY_EVAL_PERIOD`: Interval for evaluating connection quality (5 seconds)
-- `ACK_THROTTLE_INTERVAL`: Base interval for ACK throttling (100ms)
-- `MIN_ACK_RATE`: Minimum ACK rate to keep connections alive (20%)
 - `MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS`: Minimum total bandwidth for acceptable streaming quality (1000 kbps)
 - `GOOD_CONNECTION_THRESHOLD`: Threshold for considering a connection "good" (50% of max bandwidth)
 - `CONNECTION_GRACE_PERIOD`: Grace period in seconds before applying penalties (10 seconds)
@@ -192,7 +190,6 @@ The following parameters can be adjusted to optimize behavior:
 ### Limitations
 
 - The error point thresholds are static and could be dynamically adjusted to better adapt to different network situations
-- The throttling might be less effective with very short ACK intervals
 - Performance ratio calculations are based on bandwidth expectations that may need tuning for different network environments
 
 ## SRT Configuration Recommendations

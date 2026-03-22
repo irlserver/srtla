@@ -26,8 +26,6 @@ inline constexpr int KEEPALIVE_PERIOD = 1;
 inline constexpr int RECOVERY_CHANCE_PERIOD = 5;
 
 inline constexpr int CONN_QUALITY_EVAL_PERIOD = 5;
-inline constexpr int ACK_THROTTLE_INTERVAL = 100; // milliseconds
-inline constexpr double MIN_ACK_RATE = 0.2;
 inline constexpr double MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS = 1000.0;
 inline constexpr int MAX_ERROR_POINTS = 40;
 inline constexpr double GOOD_CONNECTION_THRESHOLD = 0.5;
@@ -80,8 +78,6 @@ struct ConnectionStats {
   uint32_t last_packets_lost = 0;
   uint32_t error_points = 0;
   uint8_t weight_percent = WEIGHT_FULL;
-  uint64_t last_ack_sent_time = 0;
-  double ack_throttle_factor = 1.0;
   uint16_t nack_count = 0;
 
   // Sender-side telemetry from keepalive packets (when available)
@@ -110,7 +106,6 @@ struct ConnectionStats {
   // Legacy algorithm parallel tracking (for comparison mode only)
   uint32_t legacy_error_points = 0;
   uint8_t legacy_weight_percent = WEIGHT_FULL;
-  double legacy_ack_throttle_factor = 1.0;
 
   // Returns true if we have recent, valid sender telemetry to use for quality evaluation.
   // When false, the algorithm falls back to receiver-only metrics (bandwidth + packet loss).
