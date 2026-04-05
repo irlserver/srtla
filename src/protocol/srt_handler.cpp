@@ -47,7 +47,7 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
 
     // Broadcast ACKs and NAKs to all connections to ensure they reach the
     // sender even if some connections are dead. Other packets go to last_address.
-    if (is_srt_ack(buf, n) || is_srt_nak(buf, n) || is_srt_handshake(buf, n)) {
+    if (is_srt_ack(buf, n) || is_srt_nak(buf, n)) {
         const auto &connections = group->connections();
         size_t num_conns = connections.size();
 
