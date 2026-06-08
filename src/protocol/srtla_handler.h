@@ -3,6 +3,7 @@
 #include "srt_handler.h"
 #include "../connection/connection_registry.h"
 #include "../quality/metrics_collector.h"
+#include "../utils/auth_rate_limiter.h"
 #include "../utils/nak_dedup.h"
 
 namespace srtla::protocol {
@@ -15,7 +16,8 @@ public:
     SRTLAHandler(int srtla_socket,
                  connection::ConnectionRegistry &registry,
                  SRTHandler &srt_handler,
-                 quality::MetricsCollector &metrics_collector);
+                 quality::MetricsCollector &metrics_collector,
+                 utils::AuthRateLimiter &rate_limiter);
 
     // Process multiple packets in a batch using recvmmsg
     int process_packets(time_t ts);
@@ -48,6 +50,7 @@ private:
     connection::ConnectionRegistry &registry_;
     SRTHandler &srt_handler_;
     quality::MetricsCollector &metrics_;
+    utils::AuthRateLimiter &rate_limiter_;
 };
 
 } // namespace srtla::protocol

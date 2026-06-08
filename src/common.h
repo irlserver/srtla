@@ -103,6 +103,13 @@ int is_srt_ack(void *pkt, int n);
 int is_srt_nak(void *pkt, int n);
 int is_srt_shutdown(void *pkt, int n);
 
+// SRT signals a rejected handshake by setting the handshake type field to a
+// failure code (URQ_FAILURE_TYPES base). Accepted handshakes use small
+// (induction=1) or negative-as-unsigned (conclusion/agreement) values, so a
+// value in [1000, 0x80000000) reliably identifies an auth/connection refusal.
+#define SRT_REJECTION_CODE_BASE 1000
+int is_srt_handshake_reject(void *pkt, int n);
+
 int is_srtla_keepalive(void *pkt, int len);
 int is_srtla_reg1(void *pkt, int len);
 int is_srtla_reg2(void *pkt, int len);

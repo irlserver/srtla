@@ -18,6 +18,7 @@
 #include "quality/metrics_collector.h"
 #include "quality/quality_evaluator.h"
 #include "receiver_config.h"
+#include "utils/auth_rate_limiter.h"
 #include "utils/network_utils.h"
 
 extern "C" {
@@ -151,10 +152,11 @@ int main(int argc, char **argv) {
 
   srtla::connection::ConnectionRegistry registry;
   srtla::quality::MetricsCollector metrics_collector;
+  srtla::utils::AuthRateLimiter rate_limiter;
   srtla::protocol::SRTHandler srt_handler(srtla_sock, srt_addr, epoll_fd,
-                                          registry);
+                                          registry, rate_limiter);
   srtla::protocol::SRTLAHandler srtla_handler(srtla_sock, registry, srt_handler,
-                                              metrics_collector);
+                                              metrics_collector, rate_limiter);
   srtla::quality::QualityEvaluator quality_evaluator;
   srtla::quality::LoadBalancer load_balancer;
 
@@ -202,6 +204,7 @@ int main(int argc, char **argv) {
     }
 
     registry.cleanup_inactive(ts, keepalive_callback);
+    rate_limiter.cleanup(ts);
     for (auto &group : registry.groups()) {
       quality_evaluator.evaluate_group(group, ts);
       load_balancer.adjust_weights(group, ts);

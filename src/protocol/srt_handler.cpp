@@ -11,6 +11,7 @@ static inline int is_srt_handshake(const void *pkt, int n) {
     const unsigned char *p = (const unsigned char *)pkt;
     return (p[0] == 0x80) && (p[1] == 0x00);
 }
+#include <ctime>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -28,8 +29,10 @@ namespace srtla::protocol {
 SRTHandler::SRTHandler(int srtla_socket,
                        const struct sockaddr_storage &srt_addr,
                        int epoll_fd,
-                       connection::ConnectionRegistry &registry)
-    : srtla_socket_(srtla_socket), srt_addr_(srt_addr), epoll_fd_(epoll_fd), registry_(registry) {}
+                       connection::ConnectionRegistry &registry,
+                       utils::AuthRateLimiter &rate_limiter)
+    : srtla_socket_(srtla_socket), srt_addr_(srt_addr), epoll_fd_(epoll_fd),
+      registry_(registry), rate_limiter_(rate_limiter) {}
 
 void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
     if (!group) {
@@ -43,6 +46,27 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
                       static_cast<void *>(group.get()));
         remove_group(group);
         return;
+    }
+
+    // An SRT ACK from the server means media is flowing: the connection was
+    // accepted and stream auth passed. Mark the group established so a later
+    // SHUTDOWN is treated as a normal end-of-stream rather than a rejection.
+    if (is_srt_ack(buf, n)) {
+        group->mark_established();
+    }
+
+    // Detect a failed/rejected connection and throttle the source IP. Two
+    // shapes: a libsrt-native handshake rejection (type >= failure base), or
+    // — as srt-live-server does — the server accepts the handshake then closes
+    // the socket (SHUTDOWN) before the session is established because stream
+    // auth failed. We still relay the packet below so the client sees it, then
+    // tear the group down (see end of function).
+    bool failed_auth = is_srt_handshake_reject(buf, n) ||
+                       (is_srt_shutdown(buf, n) && !group->is_established());
+    if (failed_auth) {
+        rate_limiter_.record_failure(group->last_address(), ::time(nullptr));
+        spdlog::warn("[Group: {}] SRT connection rejected before established; recorded auth failure",
+                     static_cast<void *>(group.get()));
     }
 
     // Broadcast ACKs and NAKs to all connections to ensure they reach the
@@ -95,6 +119,18 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
                           port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&group->last_address()))),
                           static_cast<void *>(group.get()));
         }
+    }
+
+    if (failed_auth) {
+        // The client has now been sent the rejection; reclaim the group's slot
+        // immediately rather than waiting for it to time out, so repeated
+        // failed-auth attempts cannot tie up the group table. Safe here: we
+        // hold a strong ref via the by-value `group` param (the object outlives
+        // this call), and the main loop stops using stale epoll pointers once
+        // the group count shrinks.
+        spdlog::info("[Group: {}] Tearing down failed-auth group",
+                     static_cast<void *>(group.get()));
+        remove_group(group);
     }
 }
 

@@ -30,6 +30,15 @@ inline constexpr int CONN_TIMEOUT = 15;
 inline constexpr int KEEPALIVE_PERIOD = 1;
 inline constexpr int RECOVERY_CHANCE_PERIOD = 5;
 
+// Per-source-IP throttle for SRT authentication failures. srtla_rec relays the
+// SRT handshake but never authenticates itself; when the SRT server rejects a
+// handshake we count it against the source IP and refuse new registrations once
+// it crosses the threshold within the window. Tuned leniently so a mistyped
+// passphrase or several broadcasters behind one NAT are not locked out.
+inline constexpr int AUTH_FAIL_THRESHOLD = 5;  // failures within window to trip
+inline constexpr int AUTH_FAIL_WINDOW = 60;    // seconds
+inline constexpr int AUTH_FAIL_COOLDOWN = 60;  // seconds blocked once tripped
+
 inline constexpr int CONN_QUALITY_EVAL_PERIOD = 5;
 inline constexpr double MIN_ACCEPTABLE_TOTAL_BANDWIDTH_KBPS = 1000.0;
 inline constexpr int MAX_ERROR_POINTS = 40;

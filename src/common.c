@@ -110,6 +110,19 @@ int is_srtla_keepalive(void *pkt, int n) {
   return get_srt_type(pkt, n) == SRTLA_TYPE_KEEPALIVE;
 }
 
+int is_srt_shutdown(void *pkt, int n) {
+  return get_srt_type(pkt, n) == SRT_TYPE_SHUTDOWN;
+}
+
+int is_srt_handshake_reject(void *pkt, int n) {
+  if (n < (int)sizeof(srt_handshake_t))
+    return 0;
+  if (get_srt_type(pkt, n) != SRT_TYPE_HANDSHAKE)
+    return 0;
+  uint32_t hs_type = be32toh(((srt_handshake_t *)pkt)->handshake_type);
+  return hs_type >= SRT_REJECTION_CODE_BASE && hs_type < 0x80000000u;
+}
+
 int is_srtla_reg1(void *pkt, int len) {
   if (len != SRTLA_TYPE_REG1_LEN)
     return 0;

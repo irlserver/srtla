@@ -38,6 +38,15 @@ public:
     bool has_seen_data() const { return data_seen_; }
     void mark_data_seen() { data_seen_ = true; }
 
+    // True once the SRT server has ACKed media for this group, i.e. the session
+    // was accepted and is running. The SRT server (srt-live-server) accepts the
+    // handshake before checking stream auth and, on failure, simply closes the
+    // socket (SHUTDOWN) instead of sending a handshake rejection. A SHUTDOWN
+    // before the group is established therefore indicates a rejected/failed
+    // connection rather than a legitimate end-of-stream.
+    bool is_established() const { return established_; }
+    void mark_established() { established_ = true; }
+
     int srt_socket() const { return srt_sock_; }
     void set_srt_socket(int sock);
 
@@ -70,6 +79,7 @@ private:
     std::vector<ConnectionPtr> conns_;
     time_t created_at_ = 0;
     bool data_seen_ = false;
+    bool established_ = false;
     int srt_sock_ = -1;
     struct sockaddr_storage last_addr_ {};
 
