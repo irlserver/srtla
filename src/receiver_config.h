@@ -20,6 +20,11 @@ inline constexpr int MAX_GROUPS = 200;
 
 inline constexpr int CLEANUP_PERIOD = 3;
 inline constexpr int GROUP_TIMEOUT = 30;
+// Groups that registered (REG1) but never forwarded real SRT data are reaped
+// aggressively. A legitimate broadcaster completes REG2 and starts the SRT
+// handshake within a fraction of a second, so this only targets the "ghost"
+// groups left behind by an unauthenticated REG1 flood (resource-exhaustion DoS).
+inline constexpr int PENDING_GROUP_TIMEOUT = 5;
 inline constexpr int CONN_TIMEOUT = 15;
 
 inline constexpr int KEEPALIVE_PERIOD = 1;

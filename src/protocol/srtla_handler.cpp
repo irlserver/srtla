@@ -137,6 +137,9 @@ void SRTLAHandler::process_single_packet(const char *buf, int n,
         return;
     }
 
+    // Real SRT traffic: promote the group out of "pending" so it is no longer
+    // subject to aggressive ghost-group reaping or eviction under a REG1 flood.
+    group->mark_data_seen();
     group->set_last_address(*srtla_addr);
     metrics_.on_packet_received(conn, static_cast<size_t>(n));
 
@@ -190,7 +193,12 @@ void SRTLAHandler::send_keepalive(const ConnectionPtr &conn, time_t ts) {
 }
 
 int SRTLAHandler::register_group(const struct sockaddr_storage *addr, const char *buffer, time_t ts) {
-    if (registry_.groups().size() >= MAX_GROUPS) {
+    // When the group table is full, try to reclaim a slot from a ghost group
+    // (registered but never streamed) before rejecting. This keeps an
+    // unauthenticated REG1 flood from locking out the real broadcaster: its
+    // REG1 evicts the oldest ghost, and once it completes REG2 and starts
+    // streaming the group is marked as having data and is no longer evictable.
+    if (registry_.groups().size() >= MAX_GROUPS && !registry_.evict_oldest_pending_group()) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
         pad_sendto(srtla_socket_, &header, sizeof(header), 0,
                reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);

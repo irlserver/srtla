@@ -32,6 +32,12 @@ public:
 
     time_t created_at() const { return created_at_; }
 
+    // True once the group has forwarded at least one real SRT packet. Used to
+    // distinguish authenticated, streaming groups from unauthenticated "ghost"
+    // groups created by a REG1 flood, which are reaped/evicted aggressively.
+    bool has_seen_data() const { return data_seen_; }
+    void mark_data_seen() { data_seen_ = true; }
+
     int srt_socket() const { return srt_sock_; }
     void set_srt_socket(int sock);
 
@@ -63,6 +69,7 @@ private:
     std::array<char, SRTLA_ID_LEN> id_ {};
     std::vector<ConnectionPtr> conns_;
     time_t created_at_ = 0;
+    bool data_seen_ = false;
     int srt_sock_ = -1;
     struct sockaddr_storage last_addr_ {};
 

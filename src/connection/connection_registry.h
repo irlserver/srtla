@@ -17,6 +17,11 @@ public:
     void add_group(const ConnectionGroupPtr &group);
     void remove_group(const ConnectionGroupPtr &group);
 
+    // Evicts the oldest group that registered but never forwarded real SRT data
+    // (no connections, no traffic). Returns true if one was evicted. Used to
+    // admit a legitimate registration when the table is full of ghost groups.
+    bool evict_oldest_pending_group();
+
     ConnectionGroupPtr find_group_by_id(const char *id);
     void find_by_address(const struct sockaddr_storage *addr,
                          ConnectionGroupPtr &out_group,
