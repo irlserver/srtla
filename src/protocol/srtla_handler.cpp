@@ -140,6 +140,17 @@ void SRTLAHandler::process_single_packet(const char *buf, int n,
     group->set_last_address(*srtla_addr);
     metrics_.on_packet_received(conn, static_cast<size_t>(n));
 
+    // Anti-DoS Layer 3: StreamID validation for unauthenticated groups.
+    // Only runs once per group — when the SRT Conclusion handshake arrives.
+    // After authentication, this block is skipped entirely (zero overhead).
+    if (!group->is_authenticated()) {
+        try_authenticate_group(group, buf, n);
+        // If the group was just destroyed by failed authentication, bail out
+        if (!registry_.find_group_by_id(reinterpret_cast<const char *>(group->id().data()))) {
+            return;
+        }
+    }
+
     if (is_srt_nak_packet(buf, n)) {
         if (is_duplicate_nak(group, buf, n)) {
             spdlog::info("[{}:{}] [Group: {}] Duplicate NAK packet suppressed",
@@ -190,6 +201,23 @@ void SRTLAHandler::send_keepalive(const ConnectionPtr &conn, time_t ts) {
 }
 
 int SRTLAHandler::register_group(const struct sockaddr_storage *addr, const char *buffer, time_t ts) {
+    // Anti-DoS Layer 1: Rate limiting per source IP
+    const char *ip_str = print_addr(const_cast<struct sockaddr *>(
+        reinterpret_cast<const struct sockaddr *>(addr)));
+    if (!rate_limiter_.allow(std::string(ip_str), ts)) {
+        // Silently drop — don't even send REG_ERR to avoid amplification
+        return -1;
+    }
+
+    // Anti-DoS Layer 2: Cap on unauthenticated (pending) groups
+    if (count_pending_groups() >= MAX_PENDING_GROUPS) {
+        spdlog::warn("[{}:{}] Group registration rejected: pending group limit reached ({})",
+                     ip_str,
+                     port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                     MAX_PENDING_GROUPS);
+        return -1;
+    }
+
     if (registry_.groups().size() >= MAX_GROUPS) {
         uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
         pad_sendto(srtla_socket_, &header, sizeof(header), 0,
@@ -462,6 +490,71 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
                       port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
                       static_cast<void *>(group.get()));
     }
+}
+
+void SRTLAHandler::try_authenticate_group(connection::ConnectionGroupPtr group,
+                                           const char *buf, int len) {
+    // Only attempt extraction if StreamID validation is configured
+    if (!stream_id_validator_ || !stream_id_validator_->is_enabled()) {
+        // No validator configured — auto-authenticate all groups
+        group->set_authenticated(true);
+        return;
+    }
+
+    // Try to extract StreamID from this packet (only works on SRT Conclusion handshakes)
+    std::string stream_id = security::StreamIdValidator::extract_stream_id(buf, len);
+    if (stream_id.empty()) {
+        // Not a Conclusion handshake — continue waiting.
+        // The PENDING_GROUP_TIMEOUT will clean up if no valid handshake arrives.
+        return;
+    }
+
+    // We found a StreamID — validate it
+    if (stream_id_validator_->validate(stream_id)) {
+        group->set_authenticated(true);
+        group->set_stream_id(stream_id);
+        spdlog::info("[Group: {}] StreamID '{}' authenticated successfully",
+                     static_cast<void *>(group.get()), stream_id);
+    } else {
+        spdlog::warn("[Group: {}] Rejected invalid StreamID: '{}'",
+                     static_cast<void *>(group.get()), stream_id);
+        // Destroy the group immediately — invalid StreamID
+        registry_.remove_group(group);
+    }
+}
+
+std::size_t SRTLAHandler::count_pending_groups() const {
+    std::size_t count = 0;
+    for (const auto &group : registry_.groups()) {
+        if (!group->is_authenticated()) {
+            count++;
+        }
+    }
+    return count;
+}
+
+
+void SRTLAHandler::notify_shutdown() {
+    constexpr socklen_t addr_len = sizeof(struct sockaddr_storage);
+    uint16_t header = htobe16(SRTLA_TYPE_REG_ERR);
+    int notified = 0;
+
+    for (const auto &group : registry_.groups()) {
+        for (const auto &conn : group->connections()) {
+            int ret = pad_sendto(srtla_socket_, &header, sizeof(header), 0,
+                             reinterpret_cast<const struct sockaddr *>(&conn->address()), addr_len);
+            if (ret == sizeof(header)) {
+                notified++;
+            }
+        }
+
+        // Also notify the last known address (might be different from any connection)
+        pad_sendto(srtla_socket_, &header, sizeof(header), 0,
+               reinterpret_cast<const struct sockaddr *>(&group->last_address()), addr_len);
+    }
+
+    spdlog::info("[shutdown] Sent disconnect notification to {} connection(s) across {} group(s)",
+                 notified, registry_.groups().size());
 }
 
 } // namespace srtla::protocol

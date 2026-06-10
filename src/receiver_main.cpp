@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -18,6 +19,8 @@
 #include "quality/metrics_collector.h"
 #include "quality/quality_evaluator.h"
 #include "receiver_config.h"
+#include "metrics/metrics_writer.h"
+#include "security/stream_id_validator.h"
 #include "utils/network_utils.h"
 
 extern "C" {
@@ -27,6 +30,19 @@ extern "C" {
 namespace {
 
 constexpr int MAX_EPOLL_EVENTS = 10;
+
+// Global pointer for SIGHUP handler to reload StreamID config
+static srtla::security::StreamIdValidator *g_stream_id_validator = nullptr;
+static volatile sig_atomic_t g_reload_requested = 0;
+static volatile sig_atomic_t g_shutdown_requested = 0;
+
+void sighup_handler(int /*sig*/) {
+    g_reload_requested = 1;
+}
+
+void shutdown_handler(int /*sig*/) {
+    g_shutdown_requested = 1;
+}
 
 void set_socket_buffers(int socket_fd) {
   int bufsize = RECV_BUF_SIZE;
@@ -62,6 +78,15 @@ int main(int argc, char **argv) {
   args.add_argument("--log_level")
       .help("Set logging level (trace, debug, info, warn, error, critical)")
       .default_value(std::string{"info"});
+  args.add_argument("--streamid_file")
+      .help("Path to file with authorized StreamIDs (one per line). "
+            "If not set, StreamID validation is disabled. "
+            "Send SIGHUP to reload the file without restarting.")
+      .default_value(std::string{""});
+  args.add_argument("--metrics_file")
+      .help("Path to write JSON metrics file (updated every 2s). "
+            "If not set, metrics file is not written.")
+      .default_value(std::string{""});
 
   try {
     args.parse_args(argc, argv);
@@ -75,6 +100,8 @@ int main(int argc, char **argv) {
   const std::string srt_hostname = args.get<std::string>("--srt_hostname");
   const std::string srt_port = std::to_string(args.get<uint16_t>("--srt_port"));
   const std::string log_level = args.get<std::string>("--log_level");
+  const std::string streamid_file = args.get<std::string>("--streamid_file");
+  const std::string metrics_file = args.get<std::string>("--metrics_file");
 
   if (log_level == "trace") {
     spdlog::set_level(spdlog::level::trace);
@@ -160,13 +187,56 @@ int main(int argc, char **argv) {
 
   spdlog::info("srtla_rec is now running");
 
+  // Anti-DoS: Initialize StreamID validator if configured
+  srtla::security::StreamIdValidator stream_id_validator;
+  if (!streamid_file.empty()) {
+    if (stream_id_validator.load(streamid_file)) {
+      srtla_handler.set_stream_id_validator(&stream_id_validator);
+      g_stream_id_validator = &stream_id_validator;
+      spdlog::info("StreamID validation enabled. Send SIGHUP to reload.");
+    } else {
+      spdlog::warn("Failed to load StreamID file '{}' — validation disabled", streamid_file);
+    }
+  } else {
+    spdlog::info("StreamID validation disabled (no --streamid_file specified)");
+  }
+
+  // Install SIGHUP handler for hot-reload of StreamID file
+  struct sigaction sa {};
+  sa.sa_handler = sighup_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sigaction(SIGHUP, &sa, nullptr);
+
+  // Install SIGTERM/SIGINT handlers for graceful shutdown
+  struct sigaction sa_shutdown {};
+  sa_shutdown.sa_handler = shutdown_handler;
+  sigemptyset(&sa_shutdown.sa_mask);
+  sa_shutdown.sa_flags = 0; // Do NOT use SA_RESTART — we want epoll_wait to be interrupted
+  sigaction(SIGTERM, &sa_shutdown, nullptr);
+  sigaction(SIGINT, &sa_shutdown, nullptr);
+
+  // Metrics: Initialize JSON writer if configured
+  std::unique_ptr<srtla::metrics::MetricsWriter> metrics_writer;
+  if (!metrics_file.empty()) {
+    metrics_writer = std::make_unique<srtla::metrics::MetricsWriter>(metrics_file);
+    spdlog::info("Metrics file enabled: {}", metrics_file);
+  }
+
   const auto keepalive_callback =
       [&srtla_handler](const srtla::connection::ConnectionPtr &conn,
                        time_t ts) { srtla_handler.send_keepalive(conn, ts); };
 
-  while (true) {
+  while (!g_shutdown_requested) {
     struct epoll_event events[MAX_EPOLL_EVENTS];
     int eventcnt = epoll_wait(epoll_fd, events, MAX_EPOLL_EVENTS, 1000);
+
+    // Check if epoll_wait was interrupted by a signal
+    if (eventcnt < 0) {
+      if (errno == EINTR) continue; // Signal interrupted — re-check g_shutdown_requested
+      spdlog::error("epoll_wait failed: {}", strerror(errno));
+      break;
+    }
 
     time_t ts = 0;
     if (get_seconds(&ts) != 0) {
@@ -202,11 +272,40 @@ int main(int argc, char **argv) {
     }
 
     registry.cleanup_inactive(ts, keepalive_callback);
+
+    // Anti-DoS: Periodic cleanup of rate limiter entries
+    srtla_handler.rate_limiter().cleanup(ts);
+
+    // Anti-DoS: Hot-reload StreamID file on SIGHUP
+    if (g_reload_requested) {
+      g_reload_requested = 0;
+      if (g_stream_id_validator) {
+        spdlog::info("SIGHUP received — reloading StreamID file");
+        g_stream_id_validator->reload();
+      }
+    }
+
+    // Metrics: Write JSON metrics file
+    if (metrics_writer) {
+      std::size_t pending = 0;
+      for (const auto &g : registry.groups()) {
+        if (!g->is_authenticated()) pending++;
+      }
+      metrics_writer->write(registry, srtla_handler.rate_limiter(), pending, ts);
+    }
+
     for (auto &group : registry.groups()) {
       quality_evaluator.evaluate_group(group, ts);
       load_balancer.adjust_weights(group, ts);
     }
   }
 
+  // ─── Graceful Shutdown ───
+  spdlog::info("Shutdown signal received — notifying connected senders...");
+  srtla_handler.notify_shutdown();
+  spdlog::info("srtla_rec shutdown complete.");
+
+  close(srtla_sock);
+  close(epoll_fd);
   return 0;
 }

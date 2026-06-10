@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -59,6 +60,12 @@ public:
 
     void set_epoll_fd(int fd) { epoll_fd_ = fd; }
 
+    // Anti-DoS: StreamID authentication state
+    bool is_authenticated() const { return authenticated_; }
+    void set_authenticated(bool auth) { authenticated_ = auth; }
+    const std::string &stream_id() const { return stream_id_; }
+    void set_stream_id(const std::string &sid) { stream_id_ = sid; }
+
 private:
     std::array<char, SRTLA_ID_LEN> id_ {};
     std::vector<ConnectionPtr> conns_;
@@ -74,6 +81,10 @@ private:
 
     std::unordered_map<uint64_t, NakHashEntry> nak_seen_hash_;
     int epoll_fd_ = -1;
+
+    // Anti-DoS state
+    bool authenticated_ = false;
+    std::string stream_id_;
 };
 
 using ConnectionGroupPtr = std::shared_ptr<ConnectionGroup>;
