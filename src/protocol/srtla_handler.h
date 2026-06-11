@@ -34,6 +34,9 @@ public:
     // Graceful shutdown: notify all connected senders before exit
     void notify_shutdown();
 
+    // Anti-DoS: Count unauthenticated groups in registry
+    std::size_t count_pending_groups() const;
+
 private:
     // Process a single packet from the batch
     void process_single_packet(const char *buf, int len,
@@ -60,9 +63,6 @@ private:
     // Anti-DoS: Attempt StreamID validation on an unauthenticated group
     void try_authenticate_group(connection::ConnectionGroupPtr group,
                                 const char *buf, int len);
-
-    // Anti-DoS: Count unauthenticated groups in registry
-    std::size_t count_pending_groups() const;
 
     int srtla_socket_;
     connection::ConnectionRegistry &registry_;

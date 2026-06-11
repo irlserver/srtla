@@ -287,10 +287,7 @@ int main(int argc, char **argv) {
 
     // Metrics: Write JSON metrics file
     if (metrics_writer) {
-      std::size_t pending = 0;
-      for (const auto &g : registry.groups()) {
-        if (!g->is_authenticated()) pending++;
-      }
+      std::size_t pending = srtla_handler.count_pending_groups();
       metrics_writer->write(registry, srtla_handler.rate_limiter(), pending, ts);
     }
 
