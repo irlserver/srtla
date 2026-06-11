@@ -81,6 +81,7 @@ public:
             out << "      \"created_at\": " << group->created_at() << ",\n";
             out << "      \"age_seconds\": " << (now - group->created_at()) << ",\n";
             out << "      \"srt_socket\": " << group->srt_socket() << ",\n";
+            out << "      \"dedup_packets_discarded\": " << group->dedup_count() << ",\n";
             out << "      \"connections\": [\n";
 
             bool first_conn = true;

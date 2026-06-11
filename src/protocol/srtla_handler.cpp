@@ -514,6 +514,12 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
                           print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
                           port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
                           static_cast<void *>(group.get()));
+        } else {
+            spdlog::debug("[{}:{}] [Group: {}] Keepalive feedback: weight={}% errors={} status={}",
+                          print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                          port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                          static_cast<void *>(group.get()),
+                          static_cast<int>(weight), static_cast<int>(errors), status);
         }
     } else {
         // Echo standard keepalive

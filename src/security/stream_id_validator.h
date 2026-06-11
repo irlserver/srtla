@@ -24,6 +24,7 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -58,7 +59,7 @@ public:
             return false;
         }
 
-        std::vector<std::string> new_ids;
+        std::unordered_set<std::string> new_ids;
         std::string line;
         while (std::getline(file, line)) {
             // Trim whitespace
@@ -70,7 +71,7 @@ public:
             std::string trimmed = line.substr(start, end - start + 1);
             // Skip empty lines and comments
             if (!trimmed.empty() && trimmed[0] != '#') {
-                new_ids.push_back(trimmed);
+                new_ids.insert(trimmed);
             }
         }
 
@@ -93,12 +94,7 @@ public:
         if (stream_id.empty()) {
             return false; // Empty StreamID is never valid when validation is on
         }
-        for (const auto &id : authorized_ids_) {
-            if (id == stream_id) {
-                return true;
-            }
-        }
-        return false;
+        return authorized_ids_.count(stream_id) > 0;
     }
 
     /// Extract the StreamID from an SRT packet buffer.
@@ -179,7 +175,7 @@ public:
     }
 
 private:
-    std::vector<std::string> authorized_ids_;
+    std::unordered_set<std::string> authorized_ids_;
     std::string filepath_;
     bool enabled_ = false;
 };

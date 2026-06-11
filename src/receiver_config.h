@@ -31,6 +31,9 @@ inline constexpr int REG1_RATE_WINDOW = 60;             // Rate limit window in 
 // Adaptive connection timeout
 inline constexpr int CONN_TIMEOUT_ACTIVE = 30;          // Extended timeout for connections that have transmitted data
 
+// Selective duplication / FEC deduplication
+inline constexpr std::size_t DEDUP_CACHE_SIZE = 8192;    // Direct-mapped cache slots per group (~32KB RAM per group)
+
 inline constexpr int KEEPALIVE_PERIOD = 1;
 inline constexpr int RECOVERY_CHANCE_PERIOD = 5;
 

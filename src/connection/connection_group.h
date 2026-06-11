@@ -71,11 +71,13 @@ public:
         if (sn < 0) return false;
         std::size_t idx = static_cast<uint32_t>(sn) % DEDUP_CACHE_SIZE;
         if (dedup_cache_[idx] == sn) {
+            dedup_count_++;
             return true;
         }
         dedup_cache_[idx] = sn;
         return false;
     }
+    uint64_t dedup_count() const { return dedup_count_; }
 
 private:
     std::array<char, SRTLA_ID_LEN> id_ {};
@@ -98,8 +100,8 @@ private:
     std::string stream_id_;
 
     // Selective duplication / FEC deduplication cache
-    static constexpr std::size_t DEDUP_CACHE_SIZE = 8192;
     std::array<int32_t, DEDUP_CACHE_SIZE> dedup_cache_;
+    uint64_t dedup_count_ = 0;
 };
 
 using ConnectionGroupPtr = std::shared_ptr<ConnectionGroup>;

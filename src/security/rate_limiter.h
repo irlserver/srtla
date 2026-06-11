@@ -43,14 +43,12 @@ public:
             entry.window_start = now;
         }
 
-        entry.count++;
-
-        if (entry.count > REG1_RATE_LIMIT) {
-            spdlog::warn("[security] Rate limit exceeded for IP {}: {}/{} in {}s window",
-                         ip, entry.count, REG1_RATE_LIMIT, REG1_RATE_WINDOW);
+        if (entry.count >= REG1_RATE_LIMIT) {
+            spdlog::warn("[security] Rate limit exceeded for IP {}", ip);
             return false;
         }
 
+        entry.count++;
         return true;
     }
 
