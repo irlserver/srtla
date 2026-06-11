@@ -36,7 +36,11 @@ bool addresses_equal(const struct sockaddr_storage &a, const struct sockaddr_sto
 }
 
 bool conn_timed_out(const ConnectionPtr &conn, time_t ts) {
-    return (conn->last_received() + CONN_TIMEOUT) < ts;
+    // Adaptive timeout: connections that have successfully transmitted data
+    // get a longer grace period (30s) for IRL scenarios (tunnels, dead zones).
+    // New connections that never transmitted keep the default 15s timeout.
+    int timeout = (conn->stats().packets_received > 0) ? CONN_TIMEOUT_ACTIVE : CONN_TIMEOUT;
+    return (conn->last_received() + timeout) < ts;
 }
 
 } // namespace
@@ -147,10 +151,17 @@ void ConnectionRegistry::cleanup_inactive(time_t current_time,
             }
         }
 
-        if (connections.empty() && (group->created_at() + GROUP_TIMEOUT) < current_time) {
+        // Adaptive group timeout:
+        // - Unauthenticated groups (never validated StreamID): fast 5s timeout
+        // - Authenticated groups with no connections: standard 30s timeout
+        int timeout = group->is_authenticated() ? GROUP_TIMEOUT : PENDING_GROUP_TIMEOUT;
+        if (connections.empty() && (group->created_at() + timeout) < current_time) {
             group_it = groups_.erase(group_it);
             removed_groups++;
-            spdlog::info("[Group: {}] Group removed (no connections)", static_cast<void *>(group.get()));
+            spdlog::info("[Group: {}] Group removed ({}, timeout={}s)",
+                         static_cast<void *>(group.get()),
+                         group->is_authenticated() ? "no connections" : "unauthenticated",
+                         timeout);
         } else {
             if (before_conns != connections.size()) {
                 group->write_socket_info_file();

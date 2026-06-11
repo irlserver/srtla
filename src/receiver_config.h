@@ -22,6 +22,18 @@ inline constexpr int CLEANUP_PERIOD = 3;
 inline constexpr int GROUP_TIMEOUT = 30;
 inline constexpr int CONN_TIMEOUT = 15;
 
+// Anti-DoS protection
+inline constexpr int PENDING_GROUP_TIMEOUT = 5;        // Fast timeout (5s) for unauthenticated groups
+inline constexpr std::size_t MAX_PENDING_GROUPS = 50;   // Cap on unauthenticated groups in memory
+inline constexpr int REG1_RATE_LIMIT = 5;               // Max REG1 packets per IP per window
+inline constexpr int REG1_RATE_WINDOW = 60;             // Rate limit window in seconds
+
+// Adaptive connection timeout
+inline constexpr int CONN_TIMEOUT_ACTIVE = 30;          // Extended timeout for connections that have transmitted data
+
+// Selective duplication / FEC deduplication
+inline constexpr std::size_t DEDUP_CACHE_SIZE = 8192;    // Direct-mapped cache slots per group (~32KB RAM per group)
+
 inline constexpr int KEEPALIVE_PERIOD = 1;
 inline constexpr int RECOVERY_CHANCE_PERIOD = 5;
 

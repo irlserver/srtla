@@ -4,6 +4,8 @@
 #include "../connection/connection_registry.h"
 #include "../quality/metrics_collector.h"
 #include "../utils/nak_dedup.h"
+#include "../security/rate_limiter.h"
+#include "../security/stream_id_validator.h"
 
 namespace srtla::protocol {
 
@@ -20,6 +22,20 @@ public:
     // Process multiple packets in a batch using recvmmsg
     int process_packets(time_t ts);
     void send_keepalive(const connection::ConnectionPtr &conn, time_t ts);
+
+    // Anti-DoS: Set the StreamID validator (optional — nullptr disables validation)
+    void set_stream_id_validator(security::StreamIdValidator *validator) {
+        stream_id_validator_ = validator;
+    }
+
+    // Anti-DoS: Get the rate limiter for periodic cleanup
+    security::RateLimiter &rate_limiter() { return rate_limiter_; }
+
+    // Graceful shutdown: notify all connected senders before exit
+    void notify_shutdown();
+
+    // Anti-DoS: Count unauthenticated groups in registry
+    std::size_t count_pending_groups() const;
 
 private:
     // Process a single packet from the batch
@@ -44,10 +60,19 @@ private:
                                      const connection_info_t &info,
                                      time_t current_time);
 
+    // Anti-DoS: Attempt StreamID validation on an unauthenticated group
+    void try_authenticate_group(connection::ConnectionGroupPtr group,
+                                const char *buf, int len);
+
     int srtla_socket_;
     connection::ConnectionRegistry &registry_;
     SRTHandler &srt_handler_;
     quality::MetricsCollector &metrics_;
+
+    // Anti-DoS components
+    security::RateLimiter rate_limiter_;
+    security::StreamIdValidator *stream_id_validator_ = nullptr;
 };
 
 } // namespace srtla::protocol
+
