@@ -4,6 +4,7 @@
 #include "srtla_handler.h"
 #include "pad_sendto.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cmath>
 #include <cstring>
@@ -176,8 +177,16 @@ void SRTLAHandler::process_single_packet(const char *buf, int n,
     }
 
     int32_t sn = get_srt_sn(const_cast<char *>(buf), n);
+    bool is_dup = false;
     if (sn >= 0) {
+        is_dup = group->is_duplicate_srt_packet(sn);
         register_packet(group, conn, sn);
+    }
+
+    if (is_dup) {
+        spdlog::trace("[Group: {}] Duplicate SRT packet (SN: {}) discarded",
+                      static_cast<void *>(group.get()), sn);
+        return;
     }
 
     if (!srt_handler_.forward_to_srt_server(group, buf, n)) {
@@ -481,14 +490,41 @@ void SRTLAHandler::handle_keepalive(ConnectionGroupPtr group,
         );
     }
     
-    // Echo the keepalive back to the sender
-    int ret = pad_sendto(srtla_socket_, buffer, length, 0,
-                     reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
-    if (ret != length) {
-        spdlog::error("[{}:{}] [Group: {}] Failed to send SRTLA Keepalive",
-                      print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
-                      port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
-                      static_cast<void *>(group.get()));
+    // Echo the keepalive back to the sender (with feedback if it is an extended keepalive)
+    if (has_conn_info && length == SRTLA_KEEPALIVE_EXT_LEN) {
+        char resp_buf[SRTLA_KEEPALIVE_EXT_LEN + 4];
+        std::memcpy(resp_buf, buffer, SRTLA_KEEPALIVE_EXT_LEN);
+
+        // Feedback values
+        uint8_t weight = static_cast<uint8_t>(conn->stats().weight_percent);
+        uint8_t errors = static_cast<uint8_t>(std::min(static_cast<uint32_t>(conn->stats().error_points), 255U));
+        
+        // Link status: 1 if active (has transmitted/received data recently), 0 otherwise
+        uint16_t status = ((conn->last_received() + CONN_TIMEOUT) >= current_time) ? 1 : 0;
+        uint16_t status_be = htobe16(status);
+
+        resp_buf[38] = weight;
+        resp_buf[39] = errors;
+        std::memcpy(resp_buf + 40, &status_be, sizeof(status_be));
+
+        int ret = pad_sendto(srtla_socket_, resp_buf, sizeof(resp_buf), 0,
+                         reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
+        if (ret != sizeof(resp_buf)) {
+            spdlog::error("[{}:{}] [Group: {}] Failed to send SRTLA Keepalive with feedback",
+                          print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                          port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                          static_cast<void *>(group.get()));
+        }
+    } else {
+        // Echo standard keepalive
+        int ret = pad_sendto(srtla_socket_, buffer, length, 0,
+                         reinterpret_cast<const struct sockaddr *>(addr), kAddrLen);
+        if (ret != length) {
+            spdlog::error("[{}:{}] [Group: {}] Failed to send SRTLA Keepalive",
+                          print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                          port_no(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(addr))),
+                          static_cast<void *>(group.get()));
+        }
     }
 }
 

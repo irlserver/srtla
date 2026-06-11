@@ -25,6 +25,9 @@ ConnectionGroup::ConnectionGroup(const char *client_id, time_t timestamp)
     std::copy(random_bytes,
               random_bytes + (SRTLA_ID_LEN / 2),
               id_.begin() + (SRTLA_ID_LEN / 2));
+
+    // Initialize duplicate packet cache for FEC/selective duplication
+    dedup_cache_.fill(-1);
 }
 
 ConnectionGroup::~ConnectionGroup() {

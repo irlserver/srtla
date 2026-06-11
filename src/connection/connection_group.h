@@ -66,6 +66,17 @@ public:
     const std::string &stream_id() const { return stream_id_; }
     void set_stream_id(const std::string &sid) { stream_id_ = sid; }
 
+    // Selective duplication / FEC deduplication
+    bool is_duplicate_srt_packet(int32_t sn) {
+        if (sn < 0) return false;
+        std::size_t idx = static_cast<uint32_t>(sn) % DEDUP_CACHE_SIZE;
+        if (dedup_cache_[idx] == sn) {
+            return true;
+        }
+        dedup_cache_[idx] = sn;
+        return false;
+    }
+
 private:
     std::array<char, SRTLA_ID_LEN> id_ {};
     std::vector<ConnectionPtr> conns_;
@@ -85,6 +96,10 @@ private:
     // Anti-DoS state
     bool authenticated_ = false;
     std::string stream_id_;
+
+    // Selective duplication / FEC deduplication cache
+    static constexpr std::size_t DEDUP_CACHE_SIZE = 8192;
+    std::array<int32_t, DEDUP_CACHE_SIZE> dedup_cache_;
 };
 
 using ConnectionGroupPtr = std::shared_ptr<ConnectionGroup>;
