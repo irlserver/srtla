@@ -18,6 +18,8 @@ public:
                utils::AuthRateLimiter &rate_limiter);
 
     void handle_srt_data(connection::ConnectionGroupPtr group);
+    // Returns false only when the group was torn down. A packet dropped
+    // because the SRT socket's send buffer was full returns true.
     bool forward_to_srt_server(connection::ConnectionGroupPtr group, const char *buffer, int length);
 
 private:
