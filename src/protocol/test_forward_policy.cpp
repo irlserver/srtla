@@ -7,6 +7,7 @@
 
 using srtla::protocol::is_transient_forward_error;
 
+// Checks which send() errors drop the packet (true) and which end the group (false).
 int main() {
     // Send buffer momentarily full: drop the packet, keep the group.
     assert(is_transient_forward_error(EAGAIN));

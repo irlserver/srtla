@@ -36,6 +36,8 @@ namespace {
 // once per packet from the media loop.
 constexpr uint64_t kForwardDropLogIntervalMs = 1000;
 
+// Counts a dropped forward and logs at most once per kForwardDropLogIntervalMs,
+// reporting how many were dropped since the previous line.
 void log_forward_drop(const void *group, int err) {
     static uint64_t dropped_since_log = 0;
     static uint64_t last_log_ms = 0;
@@ -49,7 +51,7 @@ void log_forward_drop(const void *group, int err) {
         return;
     }
     spdlog::warn("[Group: {}] SRT socket send buffer full ({}): dropping packets instead of ending the group, "
-                 "SRT will retransmit them; {} dropped since the last report (running total: "
+                 "SRT recovers them once later packets reveal the gap; {} dropped since the last report (running total: "
                  "srtla_forward_dropped_total). If this repeats, raise net.core.wmem_max",
                  group, strerror(err), dropped_since_log);
     dropped_since_log = 0;
@@ -173,6 +175,9 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
     }
 }
 
+// Sends one client packet to the SRT server on the group's socket. A transient
+// failure drops the packet and keeps the group (forward_policy.h); any other
+// failure ends the group. Returns false only when the group was removed.
 bool SRTHandler::forward_to_srt_server(connection::ConnectionGroupPtr group, const char *buffer, int length) {
     if (!ensure_group_socket(group)) {
         return false;

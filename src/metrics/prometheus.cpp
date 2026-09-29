@@ -44,7 +44,7 @@ constexpr Def kDefs[] = {
     {CONN_REG_MAX_CONNS, "srtla_conn_registrations_rejected_total", "{reason=\"max_conns\"}", ""},
     {CONN_REG_SEND_ERROR, "srtla_conn_registrations_rejected_total", "{reason=\"send_error\"}", ""},
     {CONNECTIONS_REMOVED, "srtla_connections_removed_total", "", "Connections dropped after CONN_TIMEOUT without traffic"},
-    {FORWARD_DROPPED, "srtla_forward_dropped_total", "", "Client packets dropped because the SRT socket send buffer was full (SRT retransmits them)"},
+    {FORWARD_DROPPED, "srtla_forward_dropped_total", "", "Client packets dropped because the SRT socket send buffer was full; SRT recovers them when a later packet exposes the gap"},
     {FORWARD_ERRORS, "srtla_forward_errors_total", "", "Failures forwarding a client packet to the SRT server that ended the group"},
     {FORWARDED_BYTES, "srtla_forwarded_bytes_total", "", "Bytes forwarded to the SRT server"},
     {FORWARDED_PACKETS, "srtla_forwarded_packets_total", "", "Packets forwarded to the SRT server"},
