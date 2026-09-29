@@ -56,6 +56,11 @@ add_executable(test_metrics src/metrics/test_metrics.cpp)
 target_link_libraries(test_metrics PRIVATE rec_obj common_obj spdlog::spdlog)
 target_compile_options(test_metrics PRIVATE -UNDEBUG) # the checks are assert()s
 
+add_executable(test_forward_policy src/protocol/test_forward_policy.cpp)
+target_include_directories(test_forward_policy PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(test_forward_policy PRIVATE cxx_std_17)
+target_compile_options(test_forward_policy PRIVATE -UNDEBUG) # the checks are assert()s
+
 add_executable(srtla_send
     src/sender.cpp
     src/sender.h)

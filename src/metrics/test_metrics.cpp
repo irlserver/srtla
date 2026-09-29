@@ -35,6 +35,8 @@ int main() {
     // Counters exist at zero before anything happens, so rate() has a baseline.
     std::string body = exporter.render(1000);
     assert(has(body, "\nsrtla_packets_received_total 0\n"));
+    assert(has(body, "\nsrtla_forward_dropped_total 0\n"));
+    assert(has(body, "\nsrtla_forward_errors_total 0\n"));
     assert(has(body, "\nsrtla_groups 0\n"));
     assert(has(body, "\nsrtla_connections 0\n"));
     assert(has(body, "# TYPE srtla_groups_removed_total counter\n"));

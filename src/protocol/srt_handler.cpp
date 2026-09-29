@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "srt_handler.h"
+#include "forward_policy.h"
 #include "pad_sendto.h"
 
 #include <arpa/inet.h>
@@ -11,6 +12,8 @@ static inline int is_srt_handshake(const void *pkt, int n) {
     const unsigned char *p = (const unsigned char *)pkt;
     return (p[0] == 0x80) && (p[1] == 0x00);
 }
+#include <cerrno>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -25,6 +28,37 @@ extern "C" {
 }
 
 namespace srtla::protocol {
+
+namespace {
+
+// A full send buffer comes in bursts (thousands of packets in a second after
+// an outage), so log the drops at most once a second with a count rather than
+// once per packet from the media loop.
+constexpr uint64_t kForwardDropLogIntervalMs = 1000;
+
+// Counts a dropped forward and logs at most once per kForwardDropLogIntervalMs,
+// reporting how many were dropped since the previous line.
+void log_forward_drop(const void *group, int err) {
+    static uint64_t dropped_since_log = 0;
+    static uint64_t last_log_ms = 0;
+    dropped_since_log++;
+
+    uint64_t now_ms = 0;
+    if (get_ms(&now_ms) != 0) {
+        return;
+    }
+    if (last_log_ms != 0 && now_ms - last_log_ms < kForwardDropLogIntervalMs) {
+        return;
+    }
+    spdlog::warn("[Group: {}] SRT socket send buffer full ({}): dropping packets instead of ending the group, "
+                 "SRT recovers them once later packets reveal the gap; {} dropped since the last report (running total: "
+                 "srtla_forward_dropped_total). If this repeats, raise net.core.wmem_max",
+                 group, strerror(err), dropped_since_log);
+    dropped_since_log = 0;
+    last_log_ms = now_ms;
+}
+
+} // namespace
 
 SRTHandler::SRTHandler(int srtla_socket,
                        const struct sockaddr_storage &srt_addr,
@@ -141,22 +175,40 @@ void SRTHandler::handle_srt_data(connection::ConnectionGroupPtr group) {
     }
 }
 
+// Sends one client packet to the SRT server on the group's socket. A transient
+// failure drops the packet and keeps the group (forward_policy.h); any other
+// failure ends the group. Returns false only when the group was removed.
 bool SRTHandler::forward_to_srt_server(connection::ConnectionGroupPtr group, const char *buffer, int length) {
     if (!ensure_group_socket(group)) {
         return false;
     }
 
     int ret = send(group->srt_socket(), buffer, length, 0);
-    if (ret != length) {
-        metrics::inc(metrics::FORWARD_ERRORS);
-        spdlog::error("[Group: {}] Failed to forward SRTLA packet, terminating the group",
-                      static_cast<void *>(group.get()));
-        remove_group(group);
-        return false;
+    if (ret == length) {
+        metrics::inc(metrics::FORWARDED_PACKETS);
+        metrics::inc(metrics::FORWARDED_BYTES, static_cast<uint64_t>(length));
+        return true;
     }
-    metrics::inc(metrics::FORWARDED_PACKETS);
-    metrics::inc(metrics::FORWARDED_BYTES, static_cast<uint64_t>(length));
-    return true;
+
+    int err = errno;
+    if (ret < 0 && is_transient_forward_error(err)) {
+        // Drop this one packet and keep the group: SRT recovers it by
+        // retransmission (see forward_policy.h).
+        metrics::inc(metrics::FORWARD_DROPPED);
+        log_forward_drop(static_cast<void *>(group.get()), err);
+        return true;
+    }
+
+    metrics::inc(metrics::FORWARD_ERRORS);
+    if (ret < 0) {
+        spdlog::error("[Group: {}] Failed to forward SRTLA packet ({}), terminating the group",
+                      static_cast<void *>(group.get()), strerror(err));
+    } else {
+        spdlog::error("[Group: {}] Short send forwarding SRTLA packet ({} of {} bytes), terminating the group",
+                      static_cast<void *>(group.get()), ret, length);
+    }
+    remove_group(group);
+    return false;
 }
 
 bool SRTHandler::ensure_group_socket(connection::ConnectionGroupPtr group) {
