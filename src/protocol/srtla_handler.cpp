@@ -360,14 +360,16 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
     conn->set_recv_index(next_idx);
     conn->recv_log()[static_cast<std::size_t>(next_idx - 1)] = htobe32(sn);
 
-    if (conn->recv_index() == static_cast<int>(RECV_ACK_INT)) {
+    if (conn->should_send_ack()) {
         srtla_ack_pkt ack {};
         ack.type = htobe32(SRTLA_TYPE_ACK << 16);
-        std::memcpy(&ack.acks, conn->recv_log().data(), sizeof(uint32_t) * conn->recv_log().size());
+        const std::size_t acks_len = sizeof(uint32_t) * conn->recv_index();
+        std::memcpy(&ack.acks, conn->recv_log().data(), acks_len);
 
-        int ret = pad_sendto(srtla_socket_, &ack, sizeof(ack), 0,
-                         reinterpret_cast<const struct sockaddr *>(&conn->address()), kAddrLen);
-        if (ret != sizeof(ack)) {
+        const std::size_t ack_len = sizeof(ack.type) + acks_len;
+        int ret = send_srtla_ack(srtla_socket_, &ack, ack_len,
+                                 reinterpret_cast<const struct sockaddr *>(&conn->address()), kAddrLen);
+        if (ret != static_cast<int>(ack_len)) {
             metrics::inc(metrics::SEND_ERR_ACK);
             spdlog::error("[{}:{}] [Group: {}] Failed to send the SRTLA ACK",
                           print_addr(const_cast<struct sockaddr *>(reinterpret_cast<const struct sockaddr *>(&conn->address()))),
@@ -380,7 +382,7 @@ void SRTLAHandler::register_packet(ConnectionGroupPtr group,
                           static_cast<void *>(group.get()));
         }
 
-        conn->set_recv_index(0);
+        conn->finish_ack();
     }
 }
 
