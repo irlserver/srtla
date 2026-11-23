@@ -24,6 +24,11 @@ public:
 
     int recv_index() const { return recv_idx_; }
     void set_recv_index(int idx) { recv_idx_ = idx; }
+    bool should_send_ack() const { return early_acks_left_ > 0 || recv_idx_ == RECV_ACK_INT; }
+    void finish_ack() {
+        if (early_acks_left_ > 0) --early_acks_left_;
+        recv_idx_ = 0;
+    }
 
     const std::array<uint32_t, RECV_ACK_INT> &recv_log() const { return recv_log_; }
     std::array<uint32_t, RECV_ACK_INT> &recv_log() { return recv_log_; }
@@ -46,6 +51,7 @@ private:
     struct sockaddr_storage addr_ {};
     time_t last_rcvd_ = 0;
     int recv_idx_ = 0;
+    unsigned int early_acks_left_ = 3;
     std::array<uint32_t, RECV_ACK_INT> recv_log_ {};
 
     ConnectionStats stats_ {};
